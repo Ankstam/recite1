@@ -1,0 +1,40 @@
+{
+  "bookName": "ces",
+  "updatedAt": "2026-11-21T08:32:12.257Z",
+  "items": [
+    {
+      "category": "睡前助眠",
+      "word": "tranquil",
+      "phonetic": "/ˈtræŋ.kwɪl/",
+      "meaning": "adj. 平静的；宁静的",
+      "phrases": [
+        "a tranquil night | 宁静的夜晚"
+      ]
+    },
+    {
+      "category": "日常高频",
+      "word": "serendipity",
+      "phonetic": "",
+      "meaning": "n. 机缘巧合",
+      "phrases": [
+        "Pure serendipity. | 纯属机缘巧合。"
+      ]
+    },
+    {
+      "category": "睡前助眠",
+      "word": "unwind",
+      "phonetic": "",
+      "meaning": "v. 放松",
+      "phrases": []
+    },
+    {
+      "category": "日语",
+      "word": "おやすみなさい",
+      "phonetic": "平假名",
+      "meaning": "晚安（礼貌用语）",
+      "phrases": [
+        "ゆっくりおやすみなさい | 好好休息，晚安"
+      ]
+    }
+  ]
+}
