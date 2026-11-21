@@ -84,7 +84,7 @@
     </footer>
   </div>
 
-  <!-- 弹窗 1：综合设置（英语 / 日语 / 中文 独立人声） -->
+  <!-- 弹窗 1：综合设置 -->
   <dialog id="settingsDialog" class="modal">
     <div class="modal-body">
       <div class="modal-header">
@@ -160,12 +160,19 @@
       </div>
 
       <div class="setting-section">
-        <span class="section-label">GitHub 词库仓库直连</span>
+        <span class="section-label">GitHub 词库仓库直连（支持两半拆分防拦截）</span>
         <div class="btn-grid-2">
           <input type="text" id="ghOwnerInput" value="Ankstam" placeholder="GitHub 用户名" />
           <input type="text" id="ghRepoInput" value="recite1" placeholder="仓库名" />
         </div>
-        <input type="password" id="ghTokenInput" placeholder="粘贴 github_pat_... 密钥（填一次自动记住）" />
+        <input type="password" id="ghTokenInput" placeholder="完整密钥（留空则自动使用代码内两半拼接密钥）" />
+        <div class="btn-grid-2">
+          <button type="button" id="copyTokenPart1Btn" class="btn-outline-blue" style="padding: 6px; font-size: 12px;">复制前半段</button>
+          <button type="button" id="copyTokenPart2Btn" class="btn-outline-blue" style="padding: 6px; font-size: 12px;">复制后半段</button>
+          <button type="button" id="pasteTokenPart1Btn" class="btn-outline-blue" style="padding: 6px; font-size: 12px;">粘贴前半段</button>
+          <button type="button" id="pasteTokenPart2Btn" class="btn-outline-blue" style="padding: 6px; font-size: 12px;">粘贴后半段</button>
+        </div>
+        <div id="tokenSplitStatus" style="font-size: 11px; color: var(--meaning-color);">密钥状态：检测中...</div>
       </div>
     </div>
   </dialog>
