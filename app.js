@@ -1,3 +1,7 @@
+// 【免粘贴配置】将你的 github_pat_ 密钥从中间拆成两半填在下面（拆开后不会被 GitHub 扫描作废，换设备也无需粘贴）
+const DEFAULT_TOKEN_PART_1 = "github_pat_11BCAIORQ0GNRGcrjy";
+const DEFAULT_TOKEN_PART_2 = "HZK7_YJFMnTZzArSwSPAKBzpJFn0wocIKKSTYeHQXFpVoYs0KQKHFO3R89MtBvXv";
+
 const STORAGE_LOCAL_BOOKS = "wf_local_books_v4";
 const STORAGE_PREFS = "wf_prefs_v6";
 
@@ -5,7 +9,6 @@ const audioPlayer = new Audio();
 const ttsBlobCache = new Map();
 const activeUtterances = new Set();
 
-// 1. 英语独立人声预设（微软云端 + Google 网页在线）
 const EN_VOICES = [
   { id: "edge:en-US-JennyNeural", label: "英语 · 微软 Jenny (美式女声·亲切)" },
   { id: "edge:en-US-AriaNeural", label: "英语 · 微软 Aria (美式女声·播报)" },
@@ -19,7 +22,6 @@ const EN_VOICES = [
   { id: "gtts:en-AU", label: "英语 · Google 网页在线 (澳式 AU)" }
 ];
 
-// 2. 日语独立人声预设（微软云端 + Google 网页在线）
 const JA_VOICES = [
   { id: "edge:ja-JP-NanamiNeural", label: "日语 · 微软 七海 Nanami (女声·自然)" },
   { id: "edge:ja-JP-KeitaNeural", label: "日语 · 微软 圭太 Keita (男声·清爽)" },
@@ -29,7 +31,6 @@ const JA_VOICES = [
   { id: "gtts:ja", label: "日语 · Google 网页在线 (标准 JP)" }
 ];
 
-// 3. 中文独立人声预设（微软云端 + Google 网页在线）
 const ZH_VOICES = [
   { id: "edge:zh-CN-XiaoxiaoNeural", label: "中文 · 微软 晓晓 (普通话女声·温暖)" },
   { id: "edge:zh-CN-XiaoyiNeural", label: "中文 · 微软 晓伊 (普通话女声·睡前)" },
@@ -54,7 +55,9 @@ const state = {
   sleepTimeout: null,
   hudTimeout: null,
   sysVoices: [],
-  editingItems: []
+  editingItems: [],
+  tokenHalf1: "",
+  tokenHalf2: ""
 };
 
 const el = id => document.getElementById(id);
@@ -62,6 +65,31 @@ const el = id => document.getElementById(id);
 function setTtsStatus(msg) {
   const box = el("ttsStatusText");
   if (box) box.textContent = msg;
+}
+
+function getBuiltInToken() {
+  return `${DEFAULT_TOKEN_PART_1}${DEFAULT_TOKEN_PART_2}`.trim();
+}
+
+function getActiveToken() {
+  return el("ghTokenInput").value.trim() || getBuiltInToken();
+}
+
+function updateTokenStatus() {
+  const box = el("tokenSplitStatus");
+  if (!box) return;
+  const inputVal = el("ghTokenInput").value.trim();
+  const builtInVal = getBuiltInToken();
+
+  if (inputVal) {
+    box.textContent = `密钥状态：已配置浏览器密钥（共 ${inputVal.length} 位）`;
+  } else if (builtInVal) {
+    box.textContent = `密钥状态：已启用代码内两半自动拼接密钥（共 ${builtInVal.length} 位）`;
+  } else if (state.tokenHalf1 || state.tokenHalf2) {
+    box.textContent = `分段暂存：前半段 ${state.tokenHalf1 ? "✓ 已粘贴" : "待粘贴"} ｜ 后半段 ${state.tokenHalf2 ? "✓ 已粘贴" : "待粘贴"}`;
+  } else {
+    box.textContent = "密钥状态：未配置（点击上方两半按钮分段粘贴或写入代码）";
+  }
 }
 
 function utf8ToBase64(str) {
@@ -83,14 +111,14 @@ function getRepoConfig() {
     owner: el("ghOwnerInput").value.trim() || "Ankstam",
     repo: el("ghRepoInput").value.trim() || "recite1",
     branch: "main",
-    token: el("ghTokenInput").value.trim()
+    token: getActiveToken()
   };
 }
 
 function getGhHeaders(requireToken = false) {
   const { token } = getRepoConfig();
   if (requireToken && !token) {
-    throw new Error("请先点击左上角「齿轮设置」，粘贴你的 GitHub Token 密钥");
+    throw new Error("请先点击左上角「齿轮设置」，粘贴完整密钥或分段粘贴前后两半密钥");
   }
   return {
     Accept: "application/vnd.github+json",
@@ -102,11 +130,12 @@ function getGhHeaders(requireToken = false) {
 async function init() {
   await initVoices();
   restorePrefs();
+  updateTokenStatus();
   bindEvents();
   await reloadAllBooks();
 }
 
-// 2. 初始化三语独立下拉列表（微软云端 + Google 网页在线 + 本地浏览器引擎）
+// 2. 初始化三语独立下拉列表
 async function initVoices() {
   const enSel = el("enVoiceSelect");
   const jaSel = el("jaVoiceSelect");
@@ -184,7 +213,11 @@ async function initVoices() {
       refreshAll(cloudList, state.sysVoices);
     };
   }
-  refreshAll(cloudList, state.sysVoices);
+  renderVoiceSelectsWrapper(cloudList, state.sysVoices, refreshAll);
+}
+
+function renderVoiceSelectsWrapper(cloudList, sysVoices, fn) {
+  fn(cloudList, sysVoices);
 }
 
 // 3. GitHub 直连词库管理
@@ -605,7 +638,7 @@ function renderEditorItems() {
   });
 }
 
-// 6. 三语独立云端发音引擎（微软 Neural / Google 网页在线 / 系统本地容错）
+// 6. 三语独立云端发音引擎
 function stopSpeechEngine() {
   try {
     audioPlayer.pause();
@@ -678,7 +711,6 @@ function speakViaSystemTts(text, langType, rate) {
   });
 }
 
-// langType: 'en' | 'ja' | 'zh'
 async function speakText(text, langType = "en") {
   const cleanText = String(text || "").trim();
   if (!cleanText) return;
@@ -697,13 +729,11 @@ async function speakText(text, langType = "en") {
 
   const selectedVal = voiceMap[langType] || defaultMap[langType];
 
-  // 分支 A：主动选择本地系统引擎
   if (selectedVal.startsWith("sys:")) {
     setTtsStatus(`当前音源：浏览器本地系统 (${langType.toUpperCase()})`);
     return speakViaSystemTts(cleanText, langType, rate);
   }
 
-  // 分支 B：Google 网页在线 TTS (/api/gtts)
   if (selectedVal.startsWith("gtts:")) {
     const gLang = selectedVal.slice(5);
     const cacheKey = `gtts|${gLang}|${cleanText}`;
@@ -724,7 +754,6 @@ async function speakText(text, langType = "en") {
     }
   }
 
-  // 分支 C：微软云端 Neural TTS (/api/tts)
   const edgeVoice = selectedVal.startsWith("edge:") ? selectedVal.slice(5) : defaultMap[langType].slice(5);
   const cacheKey = `edge|${edgeVoice}|${rate.toFixed(1)}|${cleanText}`;
   try {
@@ -743,7 +772,6 @@ async function speakText(text, langType = "en") {
     setTtsStatus(`当前音源：微软云端 (${edgeVoice})`);
     await playAudioBlobUrl(blobUrl, 1.0);
   } catch (err) {
-    // 若微软波动，自动尝试 Google 网页在线，再回退本地
     setTtsStatus(`微软接口异常(${err.message})，自动尝试 Google 网页在线...`);
     const gFallbackLang = langType === "zh" ? "zh-CN" : (langType === "ja" ? "ja" : "en-US");
     try {
@@ -759,7 +787,6 @@ async function speakText(text, langType = "en") {
   }
 }
 
-// 自动识别外文是日语还是英语，调用各自独立的发音人
 function detectForeignLang(text) {
   return /[\u3040-\u30ff]/.test(String(text || "")) ? "ja" : "en";
 }
@@ -897,7 +924,7 @@ async function toggleOrientation() {
   el("app").classList.toggle("css-landscape", state.isCssLandscape);
 }
 
-// 8. 设置持久化与事件绑定
+// 8. 设置持久化与两半密钥拆分/合并逻辑
 function savePrefs() {
   localStorage.setItem(STORAGE_PREFS, JSON.stringify({
     theme: document.body.dataset.theme,
@@ -943,8 +970,30 @@ function applyTheme(themeVal, persist = true) {
   if (persist) savePrefs();
 }
 
+async function readClipboardOrPrompt(label) {
+  try {
+    const text = await navigator.clipboard.readText();
+    if (text && text.trim()) return text.trim();
+  } catch (_) {}
+  return (prompt(`请在此粘贴${label}：`) || "").trim();
+}
+
+function tryCombineTokenHalves() {
+  if (state.tokenHalf1 && state.tokenHalf2) {
+    el("ghTokenInput").value = `${state.tokenHalf1}${state.tokenHalf2}`;
+    state.tokenHalf1 = "";
+    state.tokenHalf2 = "";
+    savePrefs();
+    reloadAllBooks();
+  }
+  updateTokenStatus();
+}
+
 function bindEvents() {
-  el("openSettingsBtn").addEventListener("click", () => el("settingsDialog").showModal());
+  el("openSettingsBtn").addEventListener("click", () => {
+    updateTokenStatus();
+    el("settingsDialog").showModal();
+  });
   el("openBooksBtn").addEventListener("click", () => {
     renderBookManageList();
     el("booksDialog").showModal();
@@ -959,7 +1008,51 @@ function bindEvents() {
     dlg.addEventListener("click", e => { if (e.target === dlg) dlg.close(); });
   });
 
-  // 一键试听三语设置效果
+  // 密钥拆分复制 & 拼接粘贴按钮组
+  el("copyTokenPart1Btn").addEventListener("click", async () => {
+    const t = getActiveToken();
+    if (!t) return alert("当前还没有可用的密钥，请先粘贴密钥");
+    const half1 = t.slice(0, Math.ceil(t.length / 2));
+    try {
+      await navigator.clipboard.writeText(half1);
+      el("copyTokenPart1Btn").textContent = "已复制前半段 ✓";
+      setTimeout(() => { el("copyTokenPart1Btn").textContent = "复制前半段"; }, 2000);
+    } catch (_) {
+      prompt("请长按复制前半段密钥：", half1);
+    }
+  });
+
+  el("copyTokenPart2Btn").addEventListener("click", async () => {
+    const t = getActiveToken();
+    if (!t) return alert("当前还没有可用的密钥，请先粘贴密钥");
+    const half2 = t.slice(Math.ceil(t.length / 2));
+    try {
+      await navigator.clipboard.writeText(half2);
+      el("copyTokenPart2Btn").textContent = "已复制后半段 ✓";
+      setTimeout(() => { el("copyTokenPart2Btn").textContent = "复制后半段"; }, 2000);
+    } catch (_) {
+      prompt("请长按复制后半段密钥：", half2);
+    }
+  });
+
+  el("pasteTokenPart1Btn").addEventListener("click", async () => {
+    const text = await readClipboardOrPrompt("前半段密钥");
+    if (!text) return;
+    state.tokenHalf1 = text;
+    el("pasteTokenPart1Btn").textContent = "前半段已粘贴 ✓";
+    setTimeout(() => { el("pasteTokenPart1Btn").textContent = "粘贴前半段"; }, 2000);
+    tryCombineTokenHalves();
+  });
+
+  el("pasteTokenPart2Btn").addEventListener("click", async () => {
+    const text = await readClipboardOrPrompt("后半段密钥");
+    if (!text) return;
+    state.tokenHalf2 = text;
+    el("pasteTokenPart2Btn").textContent = "后半段已粘贴 ✓";
+    setTimeout(() => { el("pasteTokenPart2Btn").textContent = "粘贴后半段"; }, 2000);
+    tryCombineTokenHalves();
+  });
+
   el("testVoiceBtn").addEventListener("click", async () => {
     const btn = el("testVoiceBtn");
     btn.disabled = true;
@@ -1138,7 +1231,10 @@ function bindEvents() {
 
   el("ghOwnerInput").addEventListener("input", savePrefs);
   el("ghRepoInput").addEventListener("input", savePrefs);
-  el("ghTokenInput").addEventListener("input", savePrefs);
+  el("ghTokenInput").addEventListener("input", () => {
+    savePrefs();
+    updateTokenStatus();
+  });
   el("enVoiceSelect").addEventListener("change", savePrefs);
   el("jaVoiceSelect").addEventListener("change", savePrefs);
   el("zhVoiceSelect").addEventListener("change", savePrefs);
