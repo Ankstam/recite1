@@ -14,6 +14,7 @@
     <!-- 顶部极简栏 -->
     <header class="topbar">
       <div class="icon-group-left">
+        <!-- 1. 设置 -->
         <button id="openSettingsBtn" class="circle-icon-btn" title="设置" aria-label="设置">
           <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="3"></circle>
@@ -21,6 +22,7 @@
           </svg>
         </button>
 
+        <!-- 2. 词库 -->
         <button id="openBooksBtn" class="circle-icon-btn" title="词库管理" aria-label="词库管理">
           <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
@@ -28,6 +30,7 @@
           </svg>
         </button>
 
+        <!-- 3. 导入 -->
         <button id="openImportBtn" class="circle-icon-btn" title="导入词库" aria-label="导入词库">
           <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
@@ -39,6 +42,15 @@
 
       <div class="icon-group-right">
         <span id="progressText" class="progress-badge">0 / 0</span>
+
+        <!-- 4. 收藏册图标按钮（位于全屏按钮左侧） -->
+        <button id="openFavoritesBtn" class="circle-icon-btn" title="收藏册" aria-label="收藏册">
+          <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+          </svg>
+        </button>
+
+        <!-- 5. 进入纯净全屏按钮 -->
         <button id="fullscreenBtn" class="circle-icon-btn" title="进入纯净模式" aria-label="进入纯净模式">
           <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="15 3 21 3 21 9"></polyline>
@@ -50,21 +62,28 @@
       </div>
     </header>
 
-    <!-- 中央单词展示舞台 -->
+    <!-- 中央单词展示舞台（双击空白或卡片可收藏当前单词） -->
     <main id="stage" class="stage">
       <div id="vocabCard" class="card">
-        <div id="cardCategory" class="card-category">分类</div>
+        <div class="card-meta-row">
+          <span id="cardCategory" class="card-category">分类</span>
+          <span id="cardFavBadge" class="card-fav-badge" style="display: none;">★ 已收藏</span>
+        </div>
         <h1 id="cardWord" class="card-word">Ready</h1>
         <div id="cardPhonetic" class="card-phonetic">/ˈred.i/</div>
 
-        <div id="thinkHint" class="think-hint">思考中… 稍后显示意思（轻触提前查看）</div>
+        <div id="thinkHint" class="think-hint">思考中… 稍后显示意思（单击查看 / 双击收藏）</div>
 
         <div id="meaningZone" class="meaning-zone">
-          <div id="cardMeaning" class="card-meaning">点击“自动播放”开始背诵，或点击左上角导入词库</div>
+          <div id="cardMeaning" class="card-meaning">点击“自动播放”开始背诵，双击空白处可收藏生词</div>
           <ul id="cardPhrases" class="card-phrases"></ul>
         </div>
       </div>
 
+      <!-- 双击收藏轻提示 -->
+      <div id="favToast" class="fav-toast">★ 已加入收藏册</div>
+
+      <!-- 纯净全屏下轻触浮出的控制条 -->
       <div id="fsHud" class="fs-hud">
         <button id="fsPlayToggle" class="btn-light-blue">暂停 / 继续</button>
         <button id="fsRevealBtn" class="btn-outline-blue">显示意思</button>
@@ -160,24 +179,70 @@
       </div>
 
       <div class="setting-section">
-        <span class="section-label">GitHub 词库仓库直连（支持两半拆分防拦截）</span>
+        <span class="section-label">GitHub 词库仓库直连（自动按 [前半段+后半段] 顺序填补）</span>
         <div class="btn-grid-2">
           <input type="text" id="ghOwnerInput" value="Ankstam" placeholder="GitHub 用户名" />
           <input type="text" id="ghRepoInput" value="recite1" placeholder="仓库名" />
         </div>
-        <input type="password" id="ghTokenInput" placeholder="完整密钥（留空则自动使用代码内两半拼接密钥）" />
-        <div class="btn-grid-2">
-          <button type="button" id="copyTokenPart1Btn" class="btn-outline-blue" style="padding: 6px; font-size: 12px;">复制前半段</button>
-          <button type="button" id="copyTokenPart2Btn" class="btn-outline-blue" style="padding: 6px; font-size: 12px;">复制后半段</button>
-          <button type="button" id="pasteTokenPart1Btn" class="btn-outline-blue" style="padding: 6px; font-size: 12px;">粘贴前半段</button>
-          <button type="button" id="pasteTokenPart2Btn" class="btn-outline-blue" style="padding: 6px; font-size: 12px;">粘贴后半段</button>
+        <div class="row">
+          <input type="password" id="ghTokenInput" placeholder="完整密钥（或点击右侧一键导入两半密钥）" />
+          <button type="button" id="oneClickImportTokenBtn" class="btn-light-blue" style="white-space: nowrap;">一键导入密钥</button>
         </div>
         <div id="tokenSplitStatus" style="font-size: 11px; color: var(--meaning-color);">密钥状态：检测中...</div>
       </div>
     </div>
   </dialog>
 
-  <!-- 弹窗 2：词库切换、分类过滤、修改与批量删除 -->
+  <!-- 弹窗 2：收藏册页面（自定义勾选背诵 / 存至 GitHub 新文件夹分类 / 导出） -->
+  <dialog id="favoritesDialog" class="modal modal-large">
+    <div class="modal-body">
+      <div class="modal-header">
+        <h3 id="favModalTitle">生词收藏册 (0)</h3>
+        <button type="button" class="close-x" data-close="favoritesDialog">✕</button>
+      </div>
+
+      <div class="setting-section">
+        <div class="slider-head">
+          <span class="section-label">自定义选择已收藏单词（双击背诵页面任意处即可收藏）</span>
+          <label class="inline-check" style="font-size: 12px;">
+            <input type="checkbox" id="selectAllFavsChk" checked /> 全选
+          </label>
+        </div>
+        <div id="favWordList" class="book-check-list" style="max-height: 220px;"></div>
+      </div>
+
+      <!-- 直接以所选收藏词进行背诵或移除 -->
+      <div class="btn-grid-2">
+        <button type="button" id="studySelectedFavsBtn" class="btn-light-blue">背诵所选收藏词</button>
+        <button type="button" id="removeSelectedFavsBtn" class="btn-danger" style="margin-right: 0;">移出收藏册</button>
+      </div>
+
+      <!-- 保存到 GitHub 新文件夹与分类 -->
+      <div class="setting-section" style="background: var(--bg); padding: 10px; border-radius: 10px; border: 1px solid var(--border);">
+        <span class="section-label">保存所选到 GitHub 仓库（支持新建文件夹与自定义分类）</span>
+        <div class="btn-grid-2">
+          <input type="text" id="favFolderInput" value="books/favorites" placeholder="文件夹路径（如 books/favorites）" />
+          <input type="text" id="favFileNameInput" placeholder="词库文件名（如：生词本1）" />
+        </div>
+        <div class="row">
+          <input type="text" id="favCustomCategoryInput" placeholder="自定义分类名（留空则保留原分类）" />
+          <button type="button" id="saveFavsToCloudBtn" class="btn-light-blue" style="white-space: nowrap;">保存至 GitHub</button>
+        </div>
+      </div>
+
+      <!-- 导出功能 -->
+      <div class="setting-section">
+        <span class="section-label">导出所选收藏单词</span>
+        <div class="btn-grid-3">
+          <button type="button" id="exportFavTxtBtn" class="btn-outline-blue">导出 TXT</button>
+          <button type="button" id="exportFavJsonBtn" class="btn-outline-blue">导出 JSON</button>
+          <button type="button" id="copyFavTextBtn" class="btn-outline-blue">复制文本</button>
+        </div>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- 弹窗 3：词库切换、分类过滤、修改与批量删除 -->
   <dialog id="booksDialog" class="modal">
     <div class="modal-body">
       <div class="modal-header">
@@ -218,7 +283,7 @@
     </div>
   </dialog>
 
-  <!-- 弹窗 3：词库内容与分类编辑器 -->
+  <!-- 弹窗 4：词库内容与分类编辑器 -->
   <dialog id="editorDialog" class="modal modal-large">
     <div class="modal-body">
       <div class="modal-header">
@@ -254,7 +319,7 @@
     </div>
   </dialog>
 
-  <!-- 弹窗 4：导入新词库 -->
+  <!-- 弹窗 5：导入新词库 -->
   <dialog id="importDialog" class="modal">
     <div class="modal-body">
       <div class="modal-header">
