@@ -1,20 +1,19 @@
 :root {
   /* 浅蓝色按钮统一变量 */
   --btn-blue: #38bdf8;
-  --btn-blue-hover: #7dd3fc;
   --btn-blue-text: #041322;
   --btn-blue-soft: rgba(56, 189, 248, 0.14);
   --btn-blue-border: rgba(56, 189, 248, 0.45);
 }
 
-/* 夜晚颜色（OLED 纯黑背景，夜间/睡前不刺眼） */
+/* 夜晚颜色（OLED 纯黑背景） */
 body[data-theme="night"] {
   --bg: #000000;
-  --surface: #0c1118;
-  --text: #eaf2fb;
+  --surface: #0d121a;
+  --text: #eef4fc;
   --subtext: #8b9bb0;
   --meaning-color: #7dd3fc;
-  --border: #1b2636;
+  --border: #1d2838;
 }
 
 /* 白天颜色（明亮清爽日间配色） */
@@ -54,7 +53,7 @@ html, body {
   flex-direction: column;
   width: 100vw;
   height: 100dvh;
-  padding: env(safe-area-inset-top) 14px env(safe-area-inset-bottom);
+  padding: calc(env(safe-area-inset-top) + 6px) 16px calc(env(safe-area-inset-bottom) + 8px);
   background: var(--bg);
   transition: transform 0.25s ease;
 }
@@ -70,41 +69,69 @@ html, body {
   transform-origin: top left;
 }
 
+/* 顶部极简栏：左上角 3 个独立圆形图标按钮 */
 .topbar {
   display: flex;
-  flex-direction: column;
-  gap: 7px;
-  padding: 8px 0;
-}
-
-.row {
-  display: flex;
-  gap: 6px;
   align-items: center;
+  justify-content: space-between;
+  padding: 4px 0;
 }
 
-select, input[type="text"], textarea {
+.icon-group-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.circle-icon-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--btn-blue-soft);
+  color: var(--btn-blue);
+  border: 1px solid var(--btn-blue-border);
+  cursor: pointer;
+  transition: transform 0.12s ease, background-color 0.15s ease;
+}
+
+.circle-icon-btn:active {
+  transform: scale(0.92);
+  background: var(--btn-blue);
+  color: var(--btn-blue-text);
+}
+
+.progress-badge {
+  font-size: 12px;
+  color: var(--subtext);
   background: var(--surface);
+  border: 1px solid var(--border);
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+
+/* 通用按钮与表单控件 */
+select, input[type="text"], textarea {
+  width: 100%;
+  background: var(--bg);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 7px 9px;
+  border-radius: 10px;
+  padding: 9px 11px;
   font-size: 13px;
 }
 
-#bookSelect, #categorySelect, #foreignVoiceSelect, #zhVoiceSelect {
-  flex: 1;
-  min-width: 0;
-}
-
-/* 浅蓝主按钮与浅蓝描边按钮 */
 button {
-  border-radius: 8px;
-  padding: 7px 10px;
+  border-radius: 10px;
+  padding: 9px 12px;
   font-size: 13px;
   cursor: pointer;
   transition: opacity 0.15s ease, transform 0.1s ease;
 }
+
 button:active {
   transform: scale(0.97);
 }
@@ -122,12 +149,6 @@ button:active {
   border: 1px solid var(--btn-blue-border);
 }
 
-.mode-tabs button {
-  flex: 1;
-  padding: 6px 4px;
-  font-size: 12px;
-}
-
 /* 中央展示舞台 */
 .stage {
   position: relative;
@@ -136,7 +157,7 @@ button:active {
   align-items: center;
   justify-content: center;
   text-align: center;
-  padding: 12px;
+  padding: 12px 4px;
   overflow-y: auto;
 }
 
@@ -151,13 +172,13 @@ button:active {
   color: var(--subtext);
   border: 1px solid var(--border);
   background: var(--surface);
-  padding: 2px 10px;
+  padding: 3px 12px;
   border-radius: 999px;
-  margin-bottom: 12px;
+  margin-bottom: 14px;
 }
 
 .card-word {
-  font-size: clamp(2.2rem, 8.5vw, 4.4rem);
+  font-size: clamp(2.4rem, 9vw, 4.6rem);
   font-weight: 700;
   letter-spacing: 0.02em;
   line-height: 1.15;
@@ -170,7 +191,6 @@ button:active {
   margin-top: 8px;
 }
 
-/* 思考阶段提示 */
 .think-hint {
   display: none;
   margin: 18px auto 0;
@@ -181,11 +201,6 @@ button:active {
   background: var(--btn-blue-soft);
   border: 1px dashed var(--btn-blue-border);
   width: fit-content;
-}
-
-/* 延迟显示释义控制 */
-.meaning-zone {
-  transition: opacity 0.25s ease, transform 0.25s ease;
 }
 
 .card.hide-meaning .think-hint {
@@ -200,27 +215,27 @@ button:active {
 }
 
 .card-meaning {
-  font-size: clamp(1.15rem, 3.8vw, 1.65rem);
+  font-size: clamp(1.2rem, 4vw, 1.7rem);
   font-weight: 600;
   color: var(--meaning-color);
-  margin-top: 16px;
+  margin-top: 18px;
   line-height: 1.45;
   transition: opacity 0.25s ease, transform 0.25s ease;
 }
 
 .card-phrases {
   list-style: none;
-  margin-top: 20px;
+  margin-top: 22px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
 .card-phrases li {
-  font-size: clamp(0.95rem, 3vw, 1.2rem);
+  font-size: clamp(0.98rem, 3.1vw, 1.25rem);
   background: var(--surface);
-  padding: 9px 14px;
-  border-radius: 10px;
+  padding: 10px 14px;
+  border-radius: 12px;
   border: 1px solid var(--border);
   line-height: 1.45;
 }
@@ -234,11 +249,11 @@ button:active {
   color: var(--subtext);
   font-size: 0.9em;
   display: block;
-  margin-top: 2px;
+  margin-top: 3px;
   transition: opacity 0.25s ease;
 }
 
-/* 纯净全屏：彻底隐藏顶部栏与底部控制区，仅保留单词和相关内容 */
+/* 纯净全屏：隐藏顶部圆形图标栏与底部播放栏，仅保留单词和相关内容 */
 body.pure-fullscreen .topbar,
 body.pure-fullscreen .controls {
   display: none !important;
@@ -274,55 +289,9 @@ body.pure-fullscreen .fs-hud.visible {
   pointer-events: auto;
 }
 
-/* 底部控制区 */
+/* 底部单行播放栏 */
 .controls {
-  display: flex;
-  flex-direction: column;
-  gap: 9px;
-  padding: 8px 0 6px;
-}
-
-.progress-line {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 12px;
-  color: var(--subtext);
-  gap: 6px;
-}
-
-.inline-check {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--text);
-}
-
-.inline-check input {
-  accent-color: var(--btn-blue);
-}
-
-.sliders.three-cols {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-  font-size: 11px;
-}
-
-.sliders label {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  color: var(--subtext);
-}
-
-.sliders strong {
-  color: var(--meaning-color);
-}
-
-.sliders input[type="range"] {
-  width: 100%;
-  accent-color: var(--btn-blue);
+  padding-top: 6px;
 }
 
 .transport {
@@ -332,36 +301,131 @@ body.pure-fullscreen .fs-hud.visible {
 }
 
 .transport button {
-  padding: 11px 4px;
+  padding: 12px 4px;
   font-size: 13px;
 }
 
-/* 导入弹窗 */
+/* 弹窗样式（设置 / 词库 / 导入） */
 .modal {
   margin: auto;
-  width: min(92vw, 460px);
+  width: min(92vw, 440px);
+  max-height: 86dvh;
+  overflow-y: auto;
   background: var(--surface);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 16px;
+  border-radius: 16px;
+  padding: 18px;
 }
 
 .modal::backdrop {
   background: rgba(0, 0, 0, 0.78);
 }
 
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.modal-header h3 {
+  font-size: 16px;
+}
+
+.close-x {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--btn-blue-soft);
+  color: var(--text);
+  border: 1px solid var(--border);
+  font-size: 13px;
+}
+
 .modal-body {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 14px;
+}
+
+.setting-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.section-label {
+  font-size: 12px;
+  color: var(--subtext);
+}
+
+.btn-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.stack-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.check-row {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.inline-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.inline-check input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--btn-blue);
+}
+
+.slider-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.slider-list label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 13px;
+}
+
+.slider-head {
+  display: flex;
+  justify-content: space-between;
+  color: var(--text);
+}
+
+.slider-head strong {
+  color: var(--meaning-color);
+}
+
+.slider-list input[type="range"] {
+  width: 100%;
+  accent-color: var(--btn-blue);
 }
 
 .file-box {
   border: 1px dashed var(--btn-blue);
   background: var(--btn-blue-soft);
-  padding: 10px;
-  border-radius: 8px;
+  padding: 11px;
+  border-radius: 10px;
   text-align: center;
   font-size: 13px;
   cursor: pointer;
@@ -375,7 +439,7 @@ body.pure-fullscreen .fs-hud.visible {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-  margin-top: 6px;
+  margin-top: 4px;
 }
 
 .btn-danger {
