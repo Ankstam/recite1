@@ -1,9 +1,9 @@
 // 【自动填入配置】将你的 github_pat_ 密钥分成两半填在此处，打开网页即自动组合填入
-const DEFAULT_TOKEN_PART_1 = "github_pat_11BCAIORQ0GNRGcrjyHZK7_YJFMn";
-const DEFAULT_TOKEN_PART_2 = "TZzArSwSPAKBzpJFn0wocIKKSTYeHQXFpVoYs0KQKHFO3R89MtBvXv";
+const DEFAULT_TOKEN_PART_1 = "";
+const DEFAULT_TOKEN_PART_2 = "";
 
 const STORAGE_LOCAL_BOOKS = "wf_local_books_v4";
-const STORAGE_PREFS = "wf_prefs_v7";
+const STORAGE_PREFS = "wf_prefs_v8";
 const STORAGE_FAVORITES = "wf_favorites_v1";
 const STORAGE_CUSTOM_FOLDERS = "wf_custom_folders_v1";
 
@@ -78,7 +78,6 @@ function setTtsStatus(msg) {
   if (box) box.textContent = msg;
 }
 
-// 两半密钥自动拼接填入
 function getBuiltInToken() {
   return `${DEFAULT_TOKEN_PART_1}${DEFAULT_TOKEN_PART_2}`.trim();
 }
@@ -154,7 +153,7 @@ async function init() {
   await reloadAllBooks();
 }
 
-// 2. 收藏册管理与双击收藏逻辑
+// 2. 收藏册管理
 function getFavKey(item) {
   return `${(item.word || "").trim().toLowerCase()}::${(item.meaning || "").trim()}`;
 }
@@ -361,7 +360,7 @@ async function initVoices() {
   refreshAll(cloudList, state.sysVoices);
 }
 
-// 4. GitHub 直连词库管理（支持 books/ 及自定义子文件夹扫描与保存）
+// 4. GitHub 直连词库管理
 function getCustomFolders() {
   try {
     return JSON.parse(localStorage.getItem(STORAGE_CUSTOM_FOLDERS) || "[]");
@@ -457,7 +456,6 @@ function sanitizeFileName(name) {
   return clean.endsWith(".json") ? clean : `${clean}.json`;
 }
 
-// 支持保存到 books/ 或自定义文件夹（如 books/favorites）
 async function saveBookToGitHub(bookName, items, existingFullPath = "", customFolder = "books") {
   const { owner, repo, branch } = getRepoConfig();
   const headers = getGhHeaders(true);
@@ -988,8 +986,12 @@ function detectForeignLang(text) {
 
 async function speakForeignSequence(item, token) {
   if (!item || token !== state.playToken) return;
-  await speakText(item.word, detectForeignLang(item.word));
-  if (token !== state.playToken) return;
+
+  // 支持独立开关控制单词本体是否发音
+  if (el("readWordChk").checked) {
+    await speakText(item.word, detectForeignLang(item.word));
+    if (token !== state.playToken) return;
+  }
 
   if (el("readPhrasesChk").checked && item.phrases.length > 0) {
     for (const p of item.phrases) {
@@ -1139,6 +1141,7 @@ function savePrefs() {
     thinkTime: el("thinkTime").value,
     stayTime: el("stayTime").value,
     speechRate: el("speechRate").value,
+    readWord: el("readWordChk").checked,
     readZh: el("readZhChk").checked,
     readPhrases: el("readPhrasesChk").checked,
     enVoiceURI: el("enVoiceSelect").value,
@@ -1157,6 +1160,7 @@ function restorePrefs() {
     if (p.thinkTime !== undefined) el("thinkTime").value = p.thinkTime;
     if (p.stayTime !== undefined) el("stayTime").value = p.stayTime;
     if (p.speechRate !== undefined) el("speechRate").value = p.speechRate;
+    if (typeof p.readWord === "boolean") el("readWordChk").checked = p.readWord;
     if (typeof p.readZh === "boolean") el("readZhChk").checked = p.readZh;
     if (typeof p.readPhrases === "boolean") el("readPhrasesChk").checked = p.readPhrases;
     if (p.ghOwner) el("ghOwnerInput").value = p.ghOwner;
@@ -1241,7 +1245,6 @@ function bindEvents() {
     renderFavsManageList();
   });
 
-  // 使用勾选的收藏单词重新作为收藏册进行背诵
   el("reciteSelectedFavsBtn").addEventListener("click", () => {
     const chosen = getSelectedFavoriteItems();
     if (chosen.length === 0) return alert("请至少勾选一个收藏单词");
@@ -1255,7 +1258,6 @@ function bindEvents() {
     showToast(`已载入 ${chosen.length} 个收藏词，可随时开始背诵`);
   });
 
-  // 导出所选收藏为 .txt 文件
   el("exportFavsBtn").addEventListener("click", () => {
     const chosen = getSelectedFavoriteItems();
     if (chosen.length === 0) return alert("请先勾选要导出的收藏单词");
@@ -1277,7 +1279,6 @@ function bindEvents() {
     URL.revokeObjectURL(url);
   });
 
-  // 保存所选收藏到 GitHub 新文件夹并设置分类
   el("saveFavsCloudBtn").addEventListener("click", async () => {
     const chosen = getSelectedFavoriteItems();
     if (chosen.length === 0) return alert("请先勾选要保存的收藏单词");
@@ -1512,6 +1513,7 @@ function bindEvents() {
     savePrefs();
   });
 
+  el("readWordChk").addEventListener("change", savePrefs);
   el("readZhChk").addEventListener("change", savePrefs);
   el("readPhrasesChk").addEventListener("change", savePrefs);
 
