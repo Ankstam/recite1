@@ -1,7 +1,6 @@
-const STORAGE_LOCAL_BOOKS = "wf_local_books_v2";
-const STORAGE_PREFS = "wf_prefs_v2";
+const STORAGE_LOCAL_BOOKS = "wf_local_books_v3";
+const STORAGE_PREFS = "wf_prefs_v3";
 
-// 全局持有正在朗读的 Utterance，防止移动端浏览器垃圾回收导致 onend 丢失卡死
 const activeUtterances = new Set();
 
 const state = {
@@ -16,7 +15,8 @@ const state = {
   wakeLock: null,
   sleepTimeout: null,
   hudTimeout: null,
-  voices: []
+  voices: [],
+  editingItems: []
 };
 
 const el = id => document.getElementById(id);
@@ -26,16 +26,20 @@ async function init() {
   initVoices();
   restorePrefs();
   bindEvents();
+  await reloadAllBooks();
+}
 
+async function reloadAllBooks(preferBookId = "") {
   const localBooks = getLocalBooks();
   let repoBooks = [];
   try {
-    const res = await fetch("/api/books");
+    const res = await fetch(`/api/books?t=${Date.now()}`);
     if (res.ok) {
       const list = await res.json();
       repoBooks = list.map(b => ({
         id: b.id,
-        name: `[仓库] ${b.name}`,
+        rawName: b.name,
+        name: `[云端] ${b.name}`,
         source: "repo",
         file: b.file,
         items: null
@@ -45,13 +49,23 @@ async function init() {
 
   state.books = [...repoBooks, ...localBooks];
   renderBookOptions();
+  renderBookManageList();
 
-  if (state.books.length > 0) {
-    await selectBook(state.books[0].id);
+  if (state.books.length === 0) {
+    state.currentBookId = "";
+    state.allItems = [];
+    state.filteredItems = [];
+    renderCard(false);
+    return;
   }
+
+  const targetId = preferBookId && state.books.some(b => b.id === preferBookId)
+    ? preferBookId
+    : state.books[0].id;
+  await selectBook(targetId);
 }
 
-// 2. 多人声加载与分类（外文人声 / 中文人声）
+// 2. 多人声加载
 function initVoices() {
   if (!("speechSynthesis" in window)) return;
 
@@ -70,16 +84,13 @@ function initVoices() {
     list.forEach(v => {
       const langLow = (v.lang || "").toLowerCase();
       const label = `${v.name.replace(/Microsoft |Google |Apple /g, "")} (${v.lang})`;
+      const opt = document.createElement("option");
+      opt.value = v.voiceURI;
+      opt.textContent = label;
 
       if (langLow.startsWith("zh") || langLow.includes("cmn")) {
-        const opt = document.createElement("option");
-        opt.value = v.voiceURI;
-        opt.textContent = label;
         zhSel.appendChild(opt);
       } else {
-        const opt = document.createElement("option");
-        opt.value = v.voiceURI;
-        opt.textContent = label;
         foreignSel.appendChild(opt);
       }
     });
@@ -94,7 +105,7 @@ function initVoices() {
   setTimeout(load, 1200);
 }
 
-// 3. 词库管理
+// 3. 词库存储与云端同步工具
 function getLocalBooks() {
   try {
     return JSON.parse(localStorage.getItem(STORAGE_LOCAL_BOOKS) || "[]");
@@ -107,11 +118,50 @@ function saveLocalBooks(books) {
   localStorage.setItem(STORAGE_LOCAL_BOOKS, JSON.stringify(books));
 }
 
+function getAdminHeaders() {
+  return {
+    "Content-Type": "application/json",
+    "X-Admin-Password": el("adminPwdInput").value.trim()
+  };
+}
+
+function sanitizeFileName(name) {
+  const clean = name.trim().replace(/[\\/:*?"<>|]/g, "_") || `book_${Date.now()}`;
+  return clean.endsWith(".json") ? clean : `${clean}.json`;
+}
+
+async function saveBookToGitHub(bookName, items, existingFileName = "") {
+  const fileName = existingFileName || sanitizeFileName(bookName);
+  const payload = {
+    bookName: bookName.replace(/\.json$/i, ""),
+    updatedAt: new Date().toISOString(),
+    items: items.map(item => ({
+      category: item.category || "未分类",
+      word: item.word,
+      phonetic: item.phonetic || "",
+      meaning: item.meaning || "",
+      phrases: item.phrases.map(p => (p.zh ? `${p.foreign} | ${p.zh}` : p.foreign))
+    }))
+  };
+
+  const res = await fetch(`/api/book/${encodeURIComponent(fileName)}`, {
+    method: "PUT",
+    headers: getAdminHeaders(),
+    body: JSON.stringify(payload, null, 2)
+  });
+
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.error || "保存到 GitHub 失败");
+  }
+  return `repo:${data.file || fileName}`;
+}
+
 function renderBookOptions() {
   const select = el("bookSelect");
   select.innerHTML = "";
   if (state.books.length === 0) {
-    select.innerHTML = `<option value="">暂无词库（请点击左上角导入）</option>`;
+    select.innerHTML = `<option value="">暂无词库（点击左上角导入）</option>`;
     return;
   }
   state.books.forEach(b => {
@@ -123,6 +173,47 @@ function renderBookOptions() {
   if (state.currentBookId) select.value = state.currentBookId;
 }
 
+// 渲染多选批量删除列表
+function renderBookManageList() {
+  const container = el("bookManageList");
+  container.innerHTML = "";
+  el("selectAllBooksChk").checked = false;
+  updateBatchDeleteBtnCount();
+
+  if (state.books.length === 0) {
+    container.innerHTML = `<div style="padding:10px;font-size:12px;color:var(--subtext);text-align:center;">暂无词库</div>`;
+    return;
+  }
+
+  state.books.forEach(b => {
+    const label = document.createElement("label");
+    label.className = "book-check-item";
+
+    const chk = document.createElement("input");
+    chk.type = "checkbox";
+    chk.value = b.id;
+    chk.className = "book-del-chk";
+    chk.addEventListener("change", updateBatchDeleteBtnCount);
+
+    const title = document.createElement("span");
+    title.textContent = b.rawName || b.name.replace(/^\[(云端|本地)\]\s*/, "");
+
+    const badge = document.createElement("span");
+    badge.className = b.source === "repo" ? "tag-cloud" : "tag-local";
+    badge.textContent = b.source === "repo" ? "GitHub" : "本地";
+
+    label.appendChild(chk);
+    label.appendChild(title);
+    label.appendChild(badge);
+    container.appendChild(label);
+  });
+}
+
+function updateBatchDeleteBtnCount() {
+  const count = document.querySelectorAll(".book-del-chk:checked").length;
+  el("batchDeleteBooksBtn").textContent = `删除所选 (${count})`;
+}
+
 async function selectBook(bookId) {
   stopAutoPlay();
   state.currentBookId = bookId;
@@ -131,11 +222,9 @@ async function selectBook(bookId) {
   const book = state.books.find(b => b.id === bookId);
   if (!book) return;
 
-  el("deleteLocalBookBtn").style.display = book.source === "local" ? "inline-block" : "none";
-
   if (book.source === "repo" && !book.items) {
     el("cardWord").textContent = "加载中...";
-    const res = await fetch(`/api/book/${encodeURIComponent(book.file)}`);
+    const res = await fetch(`/api/book/${encodeURIComponent(book.file)}?t=${Date.now()}`);
     const data = await res.json();
     book.items = normalizeItems(Array.isArray(data) ? data : data.items || []);
   }
@@ -256,7 +345,7 @@ function renderCard(hideMeaning = false) {
     el("cardCategory").textContent = "空词库";
     el("cardWord").textContent = "无匹配单词";
     el("cardPhonetic").textContent = "";
-    el("cardMeaning").textContent = "请切换分类或导入词库";
+    el("cardMeaning").textContent = "请切换分类或点击左上角导入词库";
     el("cardPhrases").innerHTML = "";
     el("progressText").textContent = "0 / 0";
     return;
@@ -294,7 +383,83 @@ function revealMeaningNow() {
   el("vocabCard").classList.remove("hide-meaning");
 }
 
-// 5. 高可靠 TTS 朗读核心
+// 5. 词库与分类编辑器逻辑
+function openBookEditor() {
+  const book = state.books.find(b => b.id === state.currentBookId);
+  if (!book) return alert("请先选择一本词库");
+
+  el("editBookNameInput").value = book.rawName || book.name.replace(/^\[(云端|本地)\]\s*/, "");
+  el("batchCategoryInput").value = "";
+  state.editingItems = JSON.parse(JSON.stringify(state.allItems));
+  renderEditorItems();
+  el("booksDialog").close();
+  el("editorDialog").showModal();
+}
+
+function renderEditorItems() {
+  const list = el("editorItemsList");
+  list.innerHTML = "";
+
+  state.editingItems.forEach((item, idx) => {
+    const card = document.createElement("div");
+    card.className = "editor-item-card";
+
+    const top = document.createElement("div");
+    top.className = "editor-item-top";
+
+    const wordIn = document.createElement("input");
+    wordIn.type = "text";
+    wordIn.placeholder = "单词";
+    wordIn.value = item.word;
+    wordIn.addEventListener("input", e => { state.editingItems[idx].word = e.target.value; });
+
+    const phonIn = document.createElement("input");
+    phonIn.type = "text";
+    phonIn.placeholder = "音标";
+    phonIn.value = item.phonetic;
+    phonIn.addEventListener("input", e => { state.editingItems[idx].phonetic = e.target.value; });
+
+    const catIn = document.createElement("input");
+    catIn.type = "text";
+    catIn.placeholder = "分类";
+    catIn.value = item.category;
+    catIn.addEventListener("input", e => { state.editingItems[idx].category = e.target.value; });
+
+    const delBtn = document.createElement("button");
+    delBtn.type = "button";
+    delBtn.className = "del-item-btn";
+    delBtn.textContent = "删";
+    delBtn.addEventListener("click", () => {
+      state.editingItems.splice(idx, 1);
+      renderEditorItems();
+    });
+
+    top.append(wordIn, phonIn, catIn, delBtn);
+
+    const meanIn = document.createElement("input");
+    meanIn.type = "text";
+    meanIn.placeholder = "中文意思";
+    meanIn.value = item.meaning;
+    meanIn.addEventListener("input", e => { state.editingItems[idx].meaning = e.target.value; });
+
+    const phraseIn = document.createElement("textarea");
+    phraseIn.rows = 2;
+    phraseIn.placeholder = "词组或例句（每行一条，格式：英文 | 中文意思）";
+    phraseIn.value = item.phrases.map(p => (p.zh ? `${p.foreign} | ${p.zh}` : p.foreign)).join("\n");
+    phraseIn.addEventListener("input", e => {
+      state.editingItems[idx].phrases = e.target.value
+        .split(/\r?\n/)
+        .map(l => l.trim())
+        .filter(Boolean)
+        .map(splitBilingualLine);
+    });
+
+    card.append(top, meanIn, phraseIn);
+    list.appendChild(card);
+  });
+}
+
+// 6. TTS 朗读核心
 function stopSpeechEngine() {
   if (!("speechSynthesis" in window)) return;
   activeUtterances.clear();
@@ -368,9 +533,7 @@ async function speakForeignSequence(item, token) {
   if (el("readPhrasesChk").checked && item.phrases.length > 0) {
     for (const p of item.phrases) {
       if (token !== state.playToken) return;
-      if (p.foreign) {
-        await speakText(p.foreign, false);
-      }
+      if (p.foreign) await speakText(p.foreign, false);
     }
   }
 }
@@ -387,14 +550,11 @@ async function speakChineseSequence(item, token) {
   if (el("readPhrasesChk").checked && item.phrases.length > 0) {
     for (const p of item.phrases) {
       if (token !== state.playToken) return;
-      if (p.zh) {
-        await speakText(p.zh, true);
-      }
+      if (p.zh) await speakText(p.zh, true);
     }
   }
 }
 
-// 6. 自动播放主循环
 const waitMs = ms => new Promise(r => setTimeout(r, Math.max(0, ms)));
 
 async function startAutoPlay() {
@@ -443,9 +603,7 @@ function stopAutoPlay() {
 
 async function triggerSingleSpeak() {
   if (state.filteredItems.length === 0) return;
-  if (state.isPlaying) {
-    stopAutoPlay();
-  }
+  if (state.isPlaying) stopAutoPlay();
   stopSpeechEngine();
   await waitMs(60);
 
@@ -458,7 +616,7 @@ async function triggerSingleSpeak() {
   }
 }
 
-// 7. 屏幕常亮与定时停止
+// 7. 屏幕常亮、定时、纯净全屏与横竖屏
 async function requestWakeLock() {
   try {
     if ("wakeLock" in navigator && !state.wakeLock) {
@@ -482,9 +640,7 @@ function setupSleepTimer() {
   }
 }
 
-// 8. 纯净全屏与横竖屏切换
 async function enterPureFullscreen() {
-  el("settingsDialog").close();
   document.body.classList.add("pure-fullscreen");
   requestWakeLock();
   try {
@@ -514,7 +670,7 @@ async function toggleOrientation() {
   el("app").classList.toggle("css-landscape", state.isCssLandscape);
 }
 
-// 9. 设置持久化与事件绑定
+// 8. 设置持久化与事件绑定
 function savePrefs() {
   localStorage.setItem(STORAGE_PREFS, JSON.stringify({
     theme: document.body.dataset.theme,
@@ -524,7 +680,8 @@ function savePrefs() {
     readZh: el("readZhChk").checked,
     readPhrases: el("readPhrasesChk").checked,
     foreignVoiceURI: el("foreignVoiceSelect").value,
-    zhVoiceURI: el("zhVoiceSelect").value
+    zhVoiceURI: el("zhVoiceSelect").value,
+    adminPwd: el("adminPwdInput").value
   }));
 }
 
@@ -537,6 +694,7 @@ function restorePrefs() {
     if (p.speechRate !== undefined) el("speechRate").value = p.speechRate;
     if (typeof p.readZh === "boolean") el("readZhChk").checked = p.readZh;
     if (typeof p.readPhrases === "boolean") el("readPhrasesChk").checked = p.readPhrases;
+    if (p.adminPwd) el("adminPwdInput").value = p.adminPwd;
   } catch (_) {}
   el("thinkTimeVal").textContent = `${parseFloat(el("thinkTime").value).toFixed(1)}s`;
   el("stayTimeVal").textContent = `${parseFloat(el("stayTime").value).toFixed(1)}s`;
@@ -556,16 +714,18 @@ function applyTheme(themeVal, persist = true) {
 }
 
 function bindEvents() {
-  // 左上角 3 个圆形图标按钮弹窗触发
   el("openSettingsBtn").addEventListener("click", () => el("settingsDialog").showModal());
-  el("openBooksBtn").addEventListener("click", () => el("booksDialog").showModal());
+  el("openBooksBtn").addEventListener("click", () => {
+    renderBookManageList();
+    el("booksDialog").showModal();
+  });
   el("openImportBtn").addEventListener("click", () => el("importDialog").showModal());
+  el("fullscreenBtn").addEventListener("click", enterPureFullscreen);
 
-  // 通用关闭按钮与点击遮罩关闭弹窗
   document.querySelectorAll("[data-close]").forEach(btn => {
     btn.addEventListener("click", () => el(btn.dataset.close).close());
   });
-  [el("settingsDialog"), el("booksDialog"), el("importDialog")].forEach(dlg => {
+  [el("settingsDialog"), el("booksDialog"), el("editorDialog"), el("importDialog")].forEach(dlg => {
     dlg.addEventListener("click", e => {
       if (e.target === dlg) dlg.close();
     });
@@ -577,6 +737,172 @@ function bindEvents() {
     applyCategoryFilter(e.target.value);
   });
 
+  // 全选 / 批量删除词库
+  el("selectAllBooksChk").addEventListener("change", e => {
+    document.querySelectorAll(".book-del-chk").forEach(c => { c.checked = e.target.checked; });
+    updateBatchDeleteBtnCount();
+  });
+
+  el("batchDeleteBooksBtn").addEventListener("click", async () => {
+    const checkedIds = [...document.querySelectorAll(".book-del-chk:checked")].map(c => c.value);
+    if (checkedIds.length === 0) return alert("请先勾选要删除的词库");
+    if (!confirm(`确定要删除选中的 ${checkedIds.length} 个词库吗？`)) return;
+
+    const btn = el("batchDeleteBooksBtn");
+    btn.disabled = true;
+    btn.textContent = "删除中...";
+
+    try {
+      let locals = getLocalBooks();
+      for (const id of checkedIds) {
+        if (id.startsWith("local:")) {
+          locals = locals.filter(b => b.id !== id);
+        } else if (id.startsWith("repo:")) {
+          const file = id.replace(/^repo:/, "");
+          const res = await fetch(`/api/book/${encodeURIComponent(file)}`, {
+            method: "DELETE",
+            headers: getAdminHeaders()
+          });
+          if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || `删除 ${file} 失败`);
+          }
+        }
+      }
+      saveLocalBooks(locals);
+      await reloadAllBooks();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      btn.disabled = false;
+      updateBatchDeleteBtnCount();
+    }
+  });
+
+  // 打开编辑器与保存修改
+  el("openEditorBtn").addEventListener("click", openBookEditor);
+
+  el("applyBatchCategoryBtn").addEventListener("click", () => {
+    const newCat = el("batchCategoryInput").value.trim();
+    if (!newCat) return alert("请输入目标分类名称");
+    state.editingItems.forEach(item => { item.category = newCat; });
+    renderEditorItems();
+  });
+
+  el("addWordItemBtn").addEventListener("click", () => {
+    const defaultCat = state.editingItems[0]?.category || "未分类";
+    state.editingItems.unshift({
+      category: defaultCat,
+      word: "",
+      phonetic: "",
+      meaning: "",
+      phrases: []
+    });
+    renderEditorItems();
+  });
+
+  el("saveEditLocalBtn").addEventListener("click", async () => {
+    const cleanItems = state.editingItems.filter(i => i.word.trim());
+    if (cleanItems.length === 0) return alert("词库至少需要保留一个有效单词");
+    const rawName = el("editBookNameInput").value.trim() || "未命名词库";
+
+    const locals = getLocalBooks();
+    if (state.currentBookId.startsWith("local:")) {
+      const target = locals.find(b => b.id === state.currentBookId);
+      if (target) {
+        target.rawName = rawName;
+        target.name = `[本地] ${rawName}`;
+        target.items = cleanItems;
+      }
+      saveLocalBooks(locals);
+      el("editorDialog").close();
+      await reloadAllBooks(state.currentBookId);
+    } else {
+      const newId = `local:${Date.now()}`;
+      locals.unshift({ id: newId, rawName, name: `[本地] ${rawName}`, source: "local", items: cleanItems });
+      saveLocalBooks(locals);
+      el("editorDialog").close();
+      await reloadAllBooks(newId);
+    }
+  });
+
+  el("saveEditCloudBtn").addEventListener("click", async () => {
+    const cleanItems = state.editingItems.filter(i => i.word.trim());
+    if (cleanItems.length === 0) return alert("词库至少需要保留一个有效单词");
+    const rawName = el("editBookNameInput").value.trim() || "未命名词库";
+
+    const btn = el("saveEditCloudBtn");
+    btn.disabled = true;
+    btn.textContent = "同步到 GitHub 中...";
+
+    try {
+      const currentBook = state.books.find(b => b.id === state.currentBookId);
+      const existingFile = currentBook?.source === "repo" ? currentBook.file : "";
+      const newRepoId = await saveBookToGitHub(rawName, cleanItems, existingFile);
+      el("editorDialog").close();
+      await reloadAllBooks(newRepoId);
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "保存到 GitHub 云端";
+    }
+  });
+
+  // 导入新词库（支持直接存本地或上传 GitHub）
+  el("importFileInput").addEventListener("change", async e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (!el("importBookName").value) {
+      el("importBookName").value = file.name.replace(/\.[^.]+$/, "");
+    }
+    el("importTextArea").value = await file.text();
+  });
+
+  el("confirmImportBtn").addEventListener("click", async () => {
+    const btn = el("confirmImportBtn");
+    try {
+      const items = parseImportedContent(el("importTextArea").value);
+      if (items.length === 0) return alert("未识别到有效单词，请检查格式");
+
+      const rawName = el("importBookName").value.trim() || `词库_${new Date().toISOString().slice(0, 10)}`;
+      const target = el("importTargetSelect").value;
+
+      btn.disabled = true;
+      btn.textContent = "保存中...";
+
+      if (target === "repo") {
+        const newRepoId = await saveBookToGitHub(rawName, items);
+        el("importDialog").close();
+        el("importTextArea").value = "";
+        el("importBookName").value = "";
+        await reloadAllBooks(newRepoId);
+      } else {
+        const newBook = {
+          id: `local:${Date.now()}`,
+          rawName,
+          name: `[本地] ${rawName}`,
+          source: "local",
+          items
+        };
+        const locals = getLocalBooks();
+        locals.unshift(newBook);
+        saveLocalBooks(locals);
+        el("importDialog").close();
+        el("importTextArea").value = "";
+        el("importBookName").value = "";
+        await reloadAllBooks(newBook.id);
+      }
+    } catch (err) {
+      alert(err.message || "格式解析或保存失败");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "确认保存并使用";
+    }
+  });
+
+  // 其余设置与播放控制
+  el("adminPwdInput").addEventListener("input", savePrefs);
   el("foreignVoiceSelect").addEventListener("change", savePrefs);
   el("zhVoiceSelect").addEventListener("change", savePrefs);
 
@@ -608,34 +934,21 @@ function bindEvents() {
   el("prevBtn").addEventListener("click", () => {
     if (!state.filteredItems.length) return;
     state.index = (state.index - 1 + state.filteredItems.length) % state.filteredItems.length;
-    if (state.isPlaying) {
-      stopAutoPlay();
-      startAutoPlay();
-    } else {
-      renderCard(false);
-    }
+    if (state.isPlaying) { stopAutoPlay(); startAutoPlay(); } else { renderCard(false); }
   });
 
   el("nextBtn").addEventListener("click", () => {
     if (!state.filteredItems.length) return;
     state.index = (state.index + 1) % state.filteredItems.length;
-    if (state.isPlaying) {
-      stopAutoPlay();
-      startAutoPlay();
-    } else {
-      renderCard(false);
-    }
+    if (state.isPlaying) { stopAutoPlay(); startAutoPlay(); } else { renderCard(false); }
   });
 
   el("vocabCard").addEventListener("click", () => {
-    if (el("vocabCard").classList.contains("hide-meaning")) {
-      revealMeaningNow();
-    }
+    if (el("vocabCard").classList.contains("hide-meaning")) revealMeaningNow();
   });
 
   el("rotateBtn").addEventListener("click", toggleOrientation);
   el("fsRotateToggle").addEventListener("click", e => { e.stopPropagation(); toggleOrientation(); });
-  el("fullscreenBtn").addEventListener("click", enterPureFullscreen);
   el("fsExitBtn").addEventListener("click", e => { e.stopPropagation(); exitPureFullscreen(); });
   el("fsRevealBtn").addEventListener("click", e => { e.stopPropagation(); revealMeaningNow(); });
   el("fsPlayToggle").addEventListener("click", e => {
@@ -649,53 +962,6 @@ function bindEvents() {
     hud.classList.add("visible");
     clearTimeout(state.hudTimeout);
     state.hudTimeout = setTimeout(() => hud.classList.remove("visible"), 3000);
-  });
-
-  el("importFileInput").addEventListener("change", async e => {
-    const file = e.target.files[0];
-    if (!file) return;
-    if (!el("importBookName").value) {
-      el("importBookName").value = file.name.replace(/\.[^.]+$/, "");
-    }
-    el("importTextArea").value = await file.text();
-  });
-
-  el("confirmImportBtn").addEventListener("click", async () => {
-    try {
-      const items = parseImportedContent(el("importTextArea").value);
-      if (items.length === 0) return alert("未识别到有效单词，请检查格式");
-
-      const name = el("importBookName").value.trim() || `本地词库 ${new Date().toLocaleDateString()}`;
-      const newBook = {
-        id: `local:${Date.now()}`,
-        name: `[本地] ${name}`,
-        source: "local",
-        items
-      };
-
-      const locals = getLocalBooks();
-      locals.unshift(newBook);
-      saveLocalBooks(locals);
-
-      state.books = [newBook, ...state.books];
-      renderBookOptions();
-      el("importDialog").close();
-      el("importTextArea").value = "";
-      el("importBookName").value = "";
-      await selectBook(newBook.id);
-    } catch (_) {
-      alert("JSON 格式解析失败，请检查括号或引号是否完整");
-    }
-  });
-
-  el("deleteLocalBookBtn").addEventListener("click", async () => {
-    if (!state.currentBookId.startsWith("local:")) return;
-    const locals = getLocalBooks().filter(b => b.id !== state.currentBookId);
-    saveLocalBooks(locals);
-    state.books = state.books.filter(b => b.id !== state.currentBookId);
-    renderBookOptions();
-    el("booksDialog").close();
-    if (state.books.length > 0) await selectBook(state.books[0].id);
   });
 }
 
