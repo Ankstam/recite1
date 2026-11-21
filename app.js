@@ -1,6 +1,6 @@
 // 【自动填入配置】将你的 github_pat_ 密钥分成两半填在此处，打开网页即自动组合填入
-const DEFAULT_TOKEN_PART_1 = "";
-const DEFAULT_TOKEN_PART_2 = "";
+const DEFAULT_TOKEN_PART_1 = "github_pat_11BCAIORQ0GNRGcrjy";
+const DEFAULT_TOKEN_PART_2 = "HZK7_YJFMnTZzArSwSPAKBzpJFn0wocIKKSTYeHQXFpVoYs0KQKHFO3R89MtBvXv";
 
 const STORAGE_LOCAL_BOOKS = "wf_local_books_v4";
 const STORAGE_PREFS = "wf_prefs_v8";
