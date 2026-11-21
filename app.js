@@ -1,6 +1,6 @@
 // 【自动填入配置】将你的 github_pat_ 密钥分成两半填在此处，打开网页即自动组合填入
-const DEFAULT_TOKEN_PART_1 = "github_pat_11BCAIORQ0GNRGcrjy";
-const DEFAULT_TOKEN_PART_2 = "HZK7_YJFMnTZzArSwSPAKBzpJFn0wocIKKSTYeHQXFpVoYs0KQKHFO3R89MtBvXv";
+const DEFAULT_TOKEN_PART_1 = "github_pat_11BCAIORQ0GNRGcrjyHZK7_YJFMn";
+const DEFAULT_TOKEN_PART_2 = "TZzArSwSPAKBzpJFn0wocIKKSTYeHQXFpVoYs0KQKHFO3R89MtBvXv";
 
 const STORAGE_LOCAL_BOOKS = "wf_local_books_v4";
 const STORAGE_PREFS = "wf_prefs_v7";
@@ -1018,6 +1018,7 @@ async function speakChineseSequence(item, token) {
 
 const waitMs = ms => new Promise(r => setTimeout(r, Math.max(0, ms)));
 
+// 核心播放循环：语音彻底播完后，再严格执行设定的“思考时间”与“释义停留”
 async function startAutoPlay() {
   if (state.filteredItems.length === 0) return;
 
@@ -1037,13 +1038,25 @@ async function startAutoPlay() {
     const thinkSec = parseFloat(el("thinkTime").value) || 0;
     const staySec = parseFloat(el("stayTime").value) || 3.5;
 
+    // 阶段一：仅显示原文并朗读外文 -> 外文彻底播完后，再进入纯粹的“思考时间”
     renderCard(thinkSec > 0);
-    await Promise.all([waitMs(thinkSec * 1000), speakForeignSequence(item, token)]);
+    await speakForeignSequence(item, token);
     if (!state.isPlaying || token !== state.playToken) break;
 
+    if (thinkSec > 0) {
+      await waitMs(thinkSec * 1000);
+      if (!state.isPlaying || token !== state.playToken) break;
+    }
+
+    // 阶段二：揭示释义并朗读中文 -> 中文彻底播完后，再进入纯粹的“释义停留”
     revealMeaningNow();
-    await Promise.all([waitMs(staySec * 1000), speakChineseSequence(item, token)]);
+    await speakChineseSequence(item, token);
     if (!state.isPlaying || token !== state.playToken) break;
+
+    if (staySec > 0) {
+      await waitMs(staySec * 1000);
+      if (!state.isPlaying || token !== state.playToken) break;
+    }
 
     state.index = (state.index + 1) % state.filteredItems.length;
   }
