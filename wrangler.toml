@@ -1,0 +1,12 @@
+name = "vocab-player"
+main = "worker.js"
+compatibility_date = "2026-01-01"
+
+[assets]
+directory = "./"
+binding = "ASSETS"
+
+[vars]
+GITHUB_OWNER = "Ankstam"
+GITHUB_REPO = "vocab-player"
+GITHUB_BRANCH = "main"
