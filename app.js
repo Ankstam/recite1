@@ -1,5 +1,5 @@
-const STORAGE_LOCAL_BOOKS = "wf_local_books_v3";
-const STORAGE_PREFS = "wf_prefs_v3";
+const STORAGE_LOCAL_BOOKS = "wf_local_books_v4";
+const STORAGE_PREFS = "wf_prefs_v4";
 
 const activeUtterances = new Set();
 
@@ -21,6 +21,42 @@ const state = {
 
 const el = id => document.getElementById(id);
 
+// UTF-8 安全 Base64 编解码
+function utf8ToBase64(str) {
+  const bytes = new TextEncoder().encode(str);
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
+}
+
+function base64ToUtf8(b64) {
+  const binary = atob(b64.replace(/\s/g, ""));
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+}
+
+// 获取当前 GitHub 仓库配置
+function getRepoConfig() {
+  return {
+    owner: el("ghOwnerInput").value.trim() || "Ankstam",
+    repo: el("ghRepoInput").value.trim() || "recite1",
+    branch: "main",
+    token: el("ghTokenInput").value.trim()
+  };
+}
+
+function getGhHeaders(requireToken = false) {
+  const { token } = getRepoConfig();
+  if (requireToken && !token) {
+    throw new Error("请先点击左上角「齿轮设置」，粘贴你的 GitHub Token 密钥");
+  }
+  return {
+    Accept: "application/vnd.github+json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {})
+  };
+}
+
 // 1. 初始化
 async function init() {
   initVoices();
@@ -32,18 +68,25 @@ async function init() {
 async function reloadAllBooks(preferBookId = "") {
   const localBooks = getLocalBooks();
   let repoBooks = [];
+  const { owner, repo, branch } = getRepoConfig();
+
   try {
-    const res = await fetch(`/api/books?t=${Date.now()}`);
+    const api = `https://api.github.com/repos/${owner}/${repo}/contents/books?ref=${branch}`;
+    const res = await fetch(api, { cache: "no-store", headers: getGhHeaders(false) });
     if (res.ok) {
       const list = await res.json();
-      repoBooks = list.map(b => ({
-        id: b.id,
-        rawName: b.name,
-        name: `[云端] ${b.name}`,
-        source: "repo",
-        file: b.file,
-        items: null
-      }));
+      if (Array.isArray(list)) {
+        repoBooks = list
+          .filter(f => f.name.endsWith(".json"))
+          .map(f => ({
+            id: `repo:${f.name}`,
+            rawName: f.name.replace(/\.json$/i, ""),
+            name: `[云端] ${f.name.replace(/\.json$/i, "")}`,
+            source: "repo",
+            file: f.name,
+            items: null
+          }));
+      }
     }
   } catch (_) {}
 
@@ -105,7 +148,7 @@ function initVoices() {
   setTimeout(load, 1200);
 }
 
-// 3. 词库存储与云端同步工具
+// 3. GitHub 直连保存与删除
 function getLocalBooks() {
   try {
     return JSON.parse(localStorage.getItem(STORAGE_LOCAL_BOOKS) || "[]");
@@ -118,20 +161,25 @@ function saveLocalBooks(books) {
   localStorage.setItem(STORAGE_LOCAL_BOOKS, JSON.stringify(books));
 }
 
-function getAdminHeaders() {
-  return {
-    "Content-Type": "application/json",
-    "X-Admin-Password": el("adminPwdInput").value.trim()
-  };
-}
-
 function sanitizeFileName(name) {
   const clean = name.trim().replace(/[\\/:*?"<>|]/g, "_") || `book_${Date.now()}`;
   return clean.endsWith(".json") ? clean : `${clean}.json`;
 }
 
 async function saveBookToGitHub(bookName, items, existingFileName = "") {
+  const { owner, repo, branch } = getRepoConfig();
+  const headers = getGhHeaders(true);
   const fileName = existingFileName || sanitizeFileName(bookName);
+  const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/books/${encodeURIComponent(fileName)}`;
+
+  // 查询最新 sha（若文件已存在则更新，不存在则新建）
+  let existingSha = null;
+  const checkRes = await fetch(`${apiUrl}?ref=${branch}`, { cache: "no-store", headers });
+  if (checkRes.ok) {
+    const meta = await checkRes.json();
+    existingSha = meta.sha;
+  }
+
   const payload = {
     bookName: bookName.replace(/\.json$/i, ""),
     updatedAt: new Date().toISOString(),
@@ -144,17 +192,47 @@ async function saveBookToGitHub(bookName, items, existingFileName = "") {
     }))
   };
 
-  const res = await fetch(`/api/book/${encodeURIComponent(fileName)}`, {
+  const putRes = await fetch(apiUrl, {
     method: "PUT",
-    headers: getAdminHeaders(),
-    body: JSON.stringify(payload, null, 2)
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      message: `${existingSha ? "Update" : "Create"} vocab book: ${fileName}`,
+      content: utf8ToBase64(JSON.stringify(payload, null, 2)),
+      branch,
+      ...(existingSha ? { sha: existingSha } : {})
+    })
   });
 
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data.error || "保存到 GitHub 失败");
+  const data = await putRes.json();
+  if (!putRes.ok) {
+    throw new Error(`GitHub 保存失败：${data.message || putRes.status}`);
   }
-  return `repo:${data.file || fileName}`;
+  return `repo:${fileName}`;
+}
+
+async function deleteBookFromGitHub(fileName) {
+  const { owner, repo, branch } = getRepoConfig();
+  const headers = getGhHeaders(true);
+  const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/books/${encodeURIComponent(fileName)}`;
+
+  const checkRes = await fetch(`${apiUrl}?ref=${branch}`, { cache: "no-store", headers });
+  if (!checkRes.ok) return;
+  const meta = await checkRes.json();
+
+  const delRes = await fetch(apiUrl, {
+    method: "DELETE",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      message: `Delete vocab book: ${fileName}`,
+      sha: meta.sha,
+      branch
+    })
+  });
+
+  if (!delRes.ok) {
+    const err = await delRes.json();
+    throw new Error(`删除 ${fileName} 失败：${err.message || delRes.status}`);
+  }
 }
 
 function renderBookOptions() {
@@ -173,7 +251,6 @@ function renderBookOptions() {
   if (state.currentBookId) select.value = state.currentBookId;
 }
 
-// 渲染多选批量删除列表
 function renderBookManageList() {
   const container = el("bookManageList");
   container.innerHTML = "";
@@ -202,9 +279,7 @@ function renderBookManageList() {
     badge.className = b.source === "repo" ? "tag-cloud" : "tag-local";
     badge.textContent = b.source === "repo" ? "GitHub" : "本地";
 
-    label.appendChild(chk);
-    label.appendChild(title);
-    label.appendChild(badge);
+    label.append(chk, title, badge);
     container.appendChild(label);
   });
 }
@@ -224,8 +299,11 @@ async function selectBook(bookId) {
 
   if (book.source === "repo" && !book.items) {
     el("cardWord").textContent = "加载中...";
-    const res = await fetch(`/api/book/${encodeURIComponent(book.file)}?t=${Date.now()}`);
-    const data = await res.json();
+    const { owner, repo, branch } = getRepoConfig();
+    const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/books/${encodeURIComponent(book.file)}?ref=${branch}`;
+    const res = await fetch(apiUrl, { cache: "no-store", headers: getGhHeaders(false) });
+    const meta = await res.json();
+    const data = JSON.parse(base64ToUtf8(meta.content || ""));
     book.items = normalizeItems(Array.isArray(data) ? data : data.items || []);
   }
 
@@ -244,9 +322,7 @@ function splitBilingualLine(raw) {
   }
 
   const match = text.match(/^(.+?)\s+([\u4e00-\u9fa5\u3000-\u303f\uff00-\uffef，。！？；：、（）\s]+)$/);
-  if (match) {
-    return { foreign: match[1].trim(), zh: match[2].trim() };
-  }
+  if (match) return { foreign: match[1].trim(), zh: match[2].trim() };
 
   if (/^[\u4e00-\u9fa5\s，。！？；：、（）]+$/.test(text)) {
     return { foreign: "", zh: text };
@@ -383,7 +459,7 @@ function revealMeaningNow() {
   el("vocabCard").classList.remove("hide-meaning");
 }
 
-// 5. 词库与分类编辑器逻辑
+// 5. 词库编辑器
 function openBookEditor() {
   const book = state.books.find(b => b.id === state.currentBookId);
   if (!book) return alert("请先选择一本词库");
@@ -463,9 +539,7 @@ function renderEditorItems() {
 function stopSpeechEngine() {
   if (!("speechSynthesis" in window)) return;
   activeUtterances.clear();
-  try {
-    window.speechSynthesis.cancel();
-  } catch (_) {}
+  try { window.speechSynthesis.cancel(); } catch (_) {}
 }
 
 function speakText(text, isChinese = false) {
@@ -499,9 +573,7 @@ function speakText(text, isChinese = false) {
     const maxDurationMs = Math.max(2800, Math.ceil((cleanText.length * 420) / rate) + 2200);
     const watchdog = setTimeout(() => finish(), maxDurationMs);
     const resumeTimer = setInterval(() => {
-      try {
-        if (window.speechSynthesis.paused) window.speechSynthesis.resume();
-      } catch (_) {}
+      try { if (window.speechSynthesis.paused) window.speechSynthesis.resume(); } catch (_) {}
     }, 350);
 
     function finish() {
@@ -517,11 +589,7 @@ function speakText(text, isChinese = false) {
     utter.onerror = finish;
 
     activeUtterances.add(utter);
-    try {
-      window.speechSynthesis.speak(utter);
-    } catch (_) {
-      finish();
-    }
+    try { window.speechSynthesis.speak(utter); } catch (_) { finish(); }
   });
 }
 
@@ -576,17 +644,11 @@ async function startAutoPlay() {
     const staySec = parseFloat(el("stayTime").value) || 3.5;
 
     renderCard(thinkSec > 0);
-    await Promise.all([
-      waitMs(thinkSec * 1000),
-      speakForeignSequence(item, token)
-    ]);
+    await Promise.all([waitMs(thinkSec * 1000), speakForeignSequence(item, token)]);
     if (!state.isPlaying || token !== state.playToken) break;
 
     revealMeaningNow();
-    await Promise.all([
-      waitMs(staySec * 1000),
-      speakChineseSequence(item, token)
-    ]);
+    await Promise.all([waitMs(staySec * 1000), speakChineseSequence(item, token)]);
     if (!state.isPlaying || token !== state.playToken) break;
 
     state.index = (state.index + 1) % state.filteredItems.length;
@@ -611,9 +673,7 @@ async function triggerSingleSpeak() {
   const item = state.filteredItems[state.index];
   revealMeaningNow();
   await speakForeignSequence(item, token);
-  if (token === state.playToken) {
-    await speakChineseSequence(item, token);
-  }
+  if (token === state.playToken) await speakChineseSequence(item, token);
 }
 
 // 7. 屏幕常亮、定时、纯净全屏与横竖屏
@@ -635,27 +695,21 @@ function releaseWakeLock() {
 function setupSleepTimer() {
   clearTimeout(state.sleepTimeout);
   const mins = parseInt(el("sleepTimerSelect").value, 10);
-  if (mins > 0) {
-    state.sleepTimeout = setTimeout(() => stopAutoPlay(), mins * 60 * 1000);
-  }
+  if (mins > 0) state.sleepTimeout = setTimeout(() => stopAutoPlay(), mins * 60 * 1000);
 }
 
 async function enterPureFullscreen() {
   document.body.classList.add("pure-fullscreen");
   requestWakeLock();
   try {
-    if (document.documentElement.requestFullscreen) {
-      await document.documentElement.requestFullscreen();
-    }
+    if (document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen();
   } catch (_) {}
 }
 
 async function exitPureFullscreen() {
   document.body.classList.remove("pure-fullscreen");
   el("fsHud").classList.remove("visible");
-  if (document.fullscreenElement) {
-    await document.exitFullscreen().catch(() => {});
-  }
+  if (document.fullscreenElement) await document.exitFullscreen().catch(() => {});
 }
 
 async function toggleOrientation() {
@@ -681,7 +735,9 @@ function savePrefs() {
     readPhrases: el("readPhrasesChk").checked,
     foreignVoiceURI: el("foreignVoiceSelect").value,
     zhVoiceURI: el("zhVoiceSelect").value,
-    adminPwd: el("adminPwdInput").value
+    ghOwner: el("ghOwnerInput").value,
+    ghRepo: el("ghRepoInput").value,
+    ghToken: el("ghTokenInput").value
   }));
 }
 
@@ -694,7 +750,9 @@ function restorePrefs() {
     if (p.speechRate !== undefined) el("speechRate").value = p.speechRate;
     if (typeof p.readZh === "boolean") el("readZhChk").checked = p.readZh;
     if (typeof p.readPhrases === "boolean") el("readPhrasesChk").checked = p.readPhrases;
-    if (p.adminPwd) el("adminPwdInput").value = p.adminPwd;
+    if (p.ghOwner) el("ghOwnerInput").value = p.ghOwner;
+    if (p.ghRepo) el("ghRepoInput").value = p.ghRepo;
+    if (p.ghToken) el("ghTokenInput").value = p.ghToken;
   } catch (_) {}
   el("thinkTimeVal").textContent = `${parseFloat(el("thinkTime").value).toFixed(1)}s`;
   el("stayTimeVal").textContent = `${parseFloat(el("stayTime").value).toFixed(1)}s`;
@@ -707,9 +765,7 @@ function applyTheme(themeVal, persist = true) {
     b.classList.toggle("active", b.dataset.themeVal === themeVal);
   });
   const metaTheme = document.querySelector('meta[name="theme-color"]');
-  if (metaTheme) {
-    metaTheme.setAttribute("content", themeVal === "day" ? "#f4f7fb" : "#000000");
-  }
+  if (metaTheme) metaTheme.setAttribute("content", themeVal === "day" ? "#f4f7fb" : "#000000");
   if (persist) savePrefs();
 }
 
@@ -726,9 +782,7 @@ function bindEvents() {
     btn.addEventListener("click", () => el(btn.dataset.close).close());
   });
   [el("settingsDialog"), el("booksDialog"), el("editorDialog"), el("importDialog")].forEach(dlg => {
-    dlg.addEventListener("click", e => {
-      if (e.target === dlg) dlg.close();
-    });
+    dlg.addEventListener("click", e => { if (e.target === dlg) dlg.close(); });
   });
 
   el("bookSelect").addEventListener("change", e => selectBook(e.target.value));
@@ -737,7 +791,6 @@ function bindEvents() {
     applyCategoryFilter(e.target.value);
   });
 
-  // 全选 / 批量删除词库
   el("selectAllBooksChk").addEventListener("change", e => {
     document.querySelectorAll(".book-del-chk").forEach(c => { c.checked = e.target.checked; });
     updateBatchDeleteBtnCount();
@@ -758,15 +811,7 @@ function bindEvents() {
         if (id.startsWith("local:")) {
           locals = locals.filter(b => b.id !== id);
         } else if (id.startsWith("repo:")) {
-          const file = id.replace(/^repo:/, "");
-          const res = await fetch(`/api/book/${encodeURIComponent(file)}`, {
-            method: "DELETE",
-            headers: getAdminHeaders()
-          });
-          if (!res.ok) {
-            const err = await res.json();
-            throw new Error(err.error || `删除 ${file} 失败`);
-          }
+          await deleteBookFromGitHub(id.replace(/^repo:/, ""));
         }
       }
       saveLocalBooks(locals);
@@ -779,7 +824,6 @@ function bindEvents() {
     }
   });
 
-  // 打开编辑器与保存修改
   el("openEditorBtn").addEventListener("click", openBookEditor);
 
   el("applyBatchCategoryBtn").addEventListener("click", () => {
@@ -791,13 +835,7 @@ function bindEvents() {
 
   el("addWordItemBtn").addEventListener("click", () => {
     const defaultCat = state.editingItems[0]?.category || "未分类";
-    state.editingItems.unshift({
-      category: defaultCat,
-      word: "",
-      phonetic: "",
-      meaning: "",
-      phrases: []
-    });
+    state.editingItems.unshift({ category: defaultCat, word: "", phonetic: "", meaning: "", phrases: [] });
     renderEditorItems();
   });
 
@@ -849,13 +887,10 @@ function bindEvents() {
     }
   });
 
-  // 导入新词库（支持直接存本地或上传 GitHub）
   el("importFileInput").addEventListener("change", async e => {
     const file = e.target.files[0];
     if (!file) return;
-    if (!el("importBookName").value) {
-      el("importBookName").value = file.name.replace(/\.[^.]+$/, "");
-    }
+    if (!el("importBookName").value) el("importBookName").value = file.name.replace(/\.[^.]+$/, "");
     el("importTextArea").value = await file.text();
   });
 
@@ -878,13 +913,7 @@ function bindEvents() {
         el("importBookName").value = "";
         await reloadAllBooks(newRepoId);
       } else {
-        const newBook = {
-          id: `local:${Date.now()}`,
-          rawName,
-          name: `[本地] ${rawName}`,
-          source: "local",
-          items
-        };
+        const newBook = { id: `local:${Date.now()}`, rawName, name: `[本地] ${rawName}`, source: "local", items };
         const locals = getLocalBooks();
         locals.unshift(newBook);
         saveLocalBooks(locals);
@@ -901,8 +930,9 @@ function bindEvents() {
     }
   });
 
-  // 其余设置与播放控制
-  el("adminPwdInput").addEventListener("input", savePrefs);
+  el("ghOwnerInput").addEventListener("input", savePrefs);
+  el("ghRepoInput").addEventListener("input", savePrefs);
+  el("ghTokenInput").addEventListener("input", savePrefs);
   el("foreignVoiceSelect").addEventListener("change", savePrefs);
   el("zhVoiceSelect").addEventListener("change", savePrefs);
 
@@ -926,9 +956,7 @@ function bindEvents() {
   el("readZhChk").addEventListener("change", savePrefs);
   el("readPhrasesChk").addEventListener("change", savePrefs);
 
-  el("playPauseBtn").addEventListener("click", () => {
-    state.isPlaying ? stopAutoPlay() : startAutoPlay();
-  });
+  el("playPauseBtn").addEventListener("click", () => state.isPlaying ? stopAutoPlay() : startAutoPlay());
   el("speakOnceBtn").addEventListener("click", triggerSingleSpeak);
 
   el("prevBtn").addEventListener("click", () => {
