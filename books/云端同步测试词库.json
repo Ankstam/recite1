@@ -1,0 +1,35 @@
+{
+  "bookName": "云端同步测试词库",
+  "updatedAt": "2026-11-21T08:03:02.548Z",
+  "items": [
+    {
+      "category": "睡前助眠",
+      "word": "tranquil",
+      "phonetic": "/ˈtræŋ.kwɪl/",
+      "meaning": "adj. 平静的；宁静的；安详的",
+      "phrases": [
+        "a tranquil night | 宁静的夜晚",
+        "tranquil atmosphere | 静谧的氛围"
+      ]
+    },
+    {
+      "category": "日常高频",
+      "word": "resilient",
+      "phonetic": "/rɪˈzɪl.jənt/",
+      "meaning": "adj. 有韧性的；能迅速恢复活力的",
+      "phrases": [
+        "stay resilient | 保持韧性",
+        "resilient mindset | 坚韧的心态"
+      ]
+    },
+    {
+      "category": "日语测试",
+      "word": "おやすみなさい",
+      "phonetic": "平假名 · 寒暄",
+      "meaning": "晚安（礼貌用语）",
+      "phrases": [
+        "ゆっくりおやすみなさい | 好好休息，晚安"
+      ]
+    }
+  ]
+}
