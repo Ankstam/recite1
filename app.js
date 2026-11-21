@@ -1,4 +1,4 @@
-// 【两半密钥配置】请务必按顺序：PART_1 放前半段，PART_2 放后半段
+// 【自动填入配置】将你的 github_pat_ 密钥分成两半填在此处，打开网页即自动组合填入
 const DEFAULT_TOKEN_PART_1 = "github_pat_11BCAIORQ0GNRGcrjy";
 const DEFAULT_TOKEN_PART_2 = "HZK7_YJFMnTZzArSwSPAKBzpJFn0wocIKKSTYeHQXFpVoYs0KQKHFO3R89MtBvXv";
 
@@ -59,23 +59,37 @@ const state = {
   toastTimeout: null,
   sysVoices: [],
   editingItems: [],
-  favorites: [],
-  favAddedInFullscreen: 0,
-  lastTapTime: 0,
-  lastTapX: 0,
-  lastTapY: 0
+  favorites: []
 };
 
 const el = id => document.getElementById(id);
+
+function showToast(msg) {
+  const banner = el("toastBanner");
+  if (!banner) return;
+  banner.textContent = msg;
+  banner.classList.add("show");
+  clearTimeout(state.toastTimeout);
+  state.toastTimeout = setTimeout(() => banner.classList.remove("show"), 1800);
+}
 
 function setTtsStatus(msg) {
   const box = el("ttsStatusText");
   if (box) box.textContent = msg;
 }
 
-// 严格按 [前半段 + 后半段] 顺序拼接内置密钥
+// 两半密钥自动拼接填入
 function getBuiltInToken() {
   return `${DEFAULT_TOKEN_PART_1}${DEFAULT_TOKEN_PART_2}`.trim();
+}
+
+function applyAutoTokenIfNeeded() {
+  const builtIn = getBuiltInToken();
+  const input = el("ghTokenInput");
+  if (builtIn && !input.value.trim()) {
+    input.value = builtIn;
+  }
+  updateTokenStatus();
 }
 
 function getActiveToken() {
@@ -85,15 +99,14 @@ function getActiveToken() {
 function updateTokenStatus() {
   const box = el("tokenSplitStatus");
   if (!box) return;
-  const inputVal = el("ghTokenInput").value.trim();
-  const builtInVal = getBuiltInToken();
-
-  if (inputVal) {
-    box.textContent = `密钥状态：已填补完整密钥（共 ${inputVal.length} 位）`;
-  } else if (builtInVal) {
-    box.textContent = `密钥状态：已就绪（代码内两半自动拼接，共 ${builtInVal.length} 位）`;
+  const builtIn = getBuiltInToken();
+  const active = getActiveToken();
+  if (builtIn && el("ghTokenInput").value.trim() === builtIn) {
+    box.textContent = `密钥状态：已从代码两半自动组合填入（共 ${builtIn.length} 位）`;
+  } else if (active) {
+    box.textContent = `密钥状态：已就绪（共 ${active.length} 位）`;
   } else {
-    box.textContent = "密钥状态：未配置（点击「一键导入密钥」自动填补）";
+    box.textContent = "密钥状态：未配置（请在 app.js 顶部填入两半密钥或直接输入）";
   }
 }
 
@@ -123,7 +136,7 @@ function getRepoConfig() {
 function getGhHeaders(requireToken = false) {
   const { token } = getRepoConfig();
   if (requireToken && !token) {
-    throw new Error("请先点击左上角「齿轮设置」，使用「一键导入密钥」填补密钥");
+    throw new Error("未检测到 GitHub 密钥，请在 app.js 顶部填写两半密钥或在设置中输入");
   }
   return {
     Accept: "application/vnd.github+json",
@@ -133,15 +146,141 @@ function getGhHeaders(requireToken = false) {
 
 // 1. 初始化
 async function init() {
-  state.favorites = loadFavorites();
+  loadFavorites();
   await initVoices();
   restorePrefs();
-  updateTokenStatus();
+  applyAutoTokenIfNeeded();
   bindEvents();
   await reloadAllBooks();
 }
 
-// 2. 初始化三语独立下拉列表
+// 2. 收藏册管理与双击收藏逻辑
+function getFavKey(item) {
+  return `${(item.word || "").trim().toLowerCase()}::${(item.meaning || "").trim()}`;
+}
+
+function loadFavorites() {
+  try {
+    state.favorites = JSON.parse(localStorage.getItem(STORAGE_FAVORITES) || "[]");
+  } catch {
+    state.favorites = [];
+  }
+  updateFavBadgeUI();
+}
+
+function saveFavorites() {
+  localStorage.setItem(STORAGE_FAVORITES, JSON.stringify(state.favorites));
+  updateFavBadgeUI();
+}
+
+function isItemFavorited(item) {
+  if (!item || !item.word) return false;
+  const key = getFavKey(item);
+  return state.favorites.some(f => getFavKey(f) === key);
+}
+
+function updateFavBadgeUI() {
+  const dot = el("favCountDot");
+  if (dot) {
+    const len = state.favorites.length;
+    dot.textContent = String(len);
+    dot.hidden = len === 0;
+  }
+
+  const currentItem = state.filteredItems[state.index];
+  const favorited = isItemFavorited(currentItem);
+  const tag = el("cardFavTag");
+  if (tag) tag.hidden = !favorited;
+
+  const fsFavBtn = el("fsFavBtn");
+  if (fsFavBtn) fsFavBtn.textContent = favorited ? "★ 已收藏" : "☆ 收藏";
+}
+
+function toggleFavoriteCurrentWord() {
+  if (!state.filteredItems.length) return;
+  const item = state.filteredItems[state.index];
+  if (!item || !item.word) return;
+
+  const key = getFavKey(item);
+  const idx = state.favorites.findIndex(f => getFavKey(f) === key);
+
+  if (idx >= 0) {
+    state.favorites.splice(idx, 1);
+    saveFavorites();
+    showToast(`☆ 已取消收藏：${item.word}`);
+  } else {
+    state.favorites.unshift({
+      category: item.category || "收藏词",
+      word: item.word,
+      phonetic: item.phonetic || "",
+      meaning: item.meaning || "",
+      phrases: JSON.parse(JSON.stringify(item.phrases || [])),
+      addedAt: Date.now()
+    });
+    saveFavorites();
+    showToast(`★ 已加入收藏：${item.word}`);
+  }
+}
+
+function openFavoritesModal() {
+  renderFavsManageList();
+  if (!el("favTargetBookInput").value) {
+    el("favTargetBookInput").value = `收藏精选_${new Date().toISOString().slice(0, 10)}`;
+  }
+  el("favsDialog").showModal();
+}
+
+function renderFavsManageList() {
+  const container = el("favsManageList");
+  const titleEl = el("favsModalTitle");
+  if (titleEl) titleEl.textContent = `我的收藏册 (${state.favorites.length})`;
+
+  container.innerHTML = "";
+  el("selectAllFavsChk").checked = state.favorites.length > 0;
+
+  if (state.favorites.length === 0) {
+    container.innerHTML = `<div style="padding:14px;font-size:12px;color:var(--subtext);text-align:center;">暂无收藏单词（背诵或纯净全屏时双击屏幕任意处即可收藏）</div>`;
+    return;
+  }
+
+  state.favorites.forEach((item, idx) => {
+    const label = document.createElement("label");
+    label.className = "book-check-item";
+
+    const chk = document.createElement("input");
+    chk.type = "checkbox";
+    chk.value = String(idx);
+    chk.checked = true;
+    chk.className = "fav-select-chk";
+
+    const meta = document.createElement("div");
+    meta.className = "fav-item-meta";
+
+    const wSpan = document.createElement("span");
+    wSpan.className = "fav-item-word";
+    wSpan.textContent = `${item.word} ${item.phonetic || ""}`.trim();
+
+    const sSpan = document.createElement("span");
+    sSpan.className = "fav-item-sub";
+    sSpan.textContent = item.meaning || "（无释义）";
+
+    meta.append(wSpan, sSpan);
+
+    const catTag = document.createElement("span");
+    catTag.className = "tag-cloud";
+    catTag.textContent = item.category || "收藏";
+
+    label.append(chk, meta, catTag);
+    container.appendChild(label);
+  });
+}
+
+function getSelectedFavoriteItems() {
+  const indices = [...document.querySelectorAll(".fav-select-chk:checked")].map(c => parseInt(c.value, 10));
+  return indices.map(i => state.favorites[i]).filter(Boolean);
+}
+
+// 3. 初始化三语独立下拉列表
 async function initVoices() {
   const enSel = el("enVoiceSelect");
   const jaSel = el("jaVoiceSelect");
@@ -222,58 +361,70 @@ async function initVoices() {
   refreshAll(cloudList, state.sysVoices);
 }
 
-// 3. GitHub 多文件夹扫描与词库管理
-function getMonitoredFolders() {
+// 4. GitHub 直连词库管理（支持 books/ 及自定义子文件夹扫描与保存）
+function getCustomFolders() {
   try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_CUSTOM_FOLDERS) || "[]");
-    return [...new Set(["books", "books/favorites", ...saved])];
+    return JSON.parse(localStorage.getItem(STORAGE_CUSTOM_FOLDERS) || "[]");
   } catch {
-    return ["books", "books/favorites"];
+    return [];
   }
 }
 
 function registerCustomFolder(folderPath) {
   const clean = folderPath.replace(/^\/+|\/+$/g, "");
-  if (!clean) return;
-  const list = getMonitoredFolders();
+  if (!clean || clean === "books") return;
+  const list = getCustomFolders();
   if (!list.includes(clean)) {
     list.push(clean);
     localStorage.setItem(STORAGE_CUSTOM_FOLDERS, JSON.stringify(list));
   }
 }
 
+async function fetchRepoFolderJsonFiles(owner, repo, branch, folderPath, headers) {
+  const cleanFolder = folderPath.replace(/^\/+|\/+$/g, "");
+  const api = `https://api.github.com/repos/${owner}/${repo}/contents/${cleanFolder}?ref=${branch}`;
+  const res = await fetch(api, { cache: "no-store", headers });
+  if (!res.ok) return { files: [], subDirs: [] };
+  const list = await res.json();
+  if (!Array.isArray(list)) return { files: [], subDirs: [] };
+
+  const files = list
+    .filter(f => f.type === "file" && f.name.endsWith(".json"))
+    .map(f => {
+      const prefix = cleanFolder === "books" ? "" : `${cleanFolder.replace(/^books\//, "")}/`;
+      const baseTitle = f.name.replace(/\.json$/i, "");
+      return {
+        id: `repo:${f.path}`,
+        rawName: baseTitle,
+        name: `[云端] ${prefix}${baseTitle}`,
+        source: "repo",
+        file: f.path,
+        items: null
+      };
+    });
+
+  const subDirs = list.filter(f => f.type === "dir").map(d => d.path);
+  return { files, subDirs };
+}
+
 async function reloadAllBooks(preferBookId = "") {
   const localBooks = getLocalBooks();
   let repoBooks = [];
   const { owner, repo, branch } = getRepoConfig();
-  const folders = getMonitoredFolders();
+  const headers = getGhHeaders(false);
 
-  for (const folder of folders) {
-    try {
-      const api = `https://api.github.com/repos/${owner}/${repo}/contents/${folder}?ref=${branch}`;
-      const res = await fetch(api, { cache: "no-store", headers: getGhHeaders(false) });
-      if (res.ok) {
-        const list = await res.json();
-        if (Array.isArray(list)) {
-          list
-            .filter(f => f.type === "file" && f.name.endsWith(".json"))
-            .forEach(f => {
-              const fullPath = `${folder}/${f.name}`;
-              const baseTitle = f.name.replace(/\.json$/i, "");
-              const folderTag = folder === "books" ? "" : ` (${folder})`;
-              repoBooks.push({
-                id: `repo:${fullPath}`,
-                rawName: baseTitle,
-                name: `[云端] ${baseTitle}${folderTag}`,
-                source: "repo",
-                path: fullPath,
-                items: null
-              });
-            });
-        }
-      }
-    } catch (_) {}
-  }
+  try {
+    const foldersToScan = new Set(["books", ...getCustomFolders()]);
+    const scanned = new Set();
+
+    for (const folder of foldersToScan) {
+      if (scanned.has(folder)) continue;
+      scanned.add(folder);
+      const { files, subDirs } = await fetchRepoFolderJsonFiles(owner, repo, branch, folder, headers);
+      repoBooks.push(...files);
+      subDirs.forEach(d => foldersToScan.add(d));
+    }
+  } catch (_) {}
 
   state.books = [...repoBooks, ...localBooks];
   renderBookOptions();
@@ -306,18 +457,20 @@ function sanitizeFileName(name) {
   return clean.endsWith(".json") ? clean : `${clean}.json`;
 }
 
-async function saveBookToGitHub(bookName, items, existingFullPath = "", targetFolder = "books") {
+// 支持保存到 books/ 或自定义文件夹（如 books/favorites）
+async function saveBookToGitHub(bookName, items, existingFullPath = "", customFolder = "books") {
   const { owner, repo, branch } = getRepoConfig();
   const headers = getGhHeaders(true);
 
-  let fullPath = existingFullPath;
-  if (!fullPath) {
-    const cleanFolder = (targetFolder || "books").replace(/^\/+|\/+$/g, "") || "books";
+  let targetPath = existingFullPath;
+  if (!targetPath) {
+    const cleanFolder = (customFolder || "books").trim().replace(/^\/+|\/+$/g, "") || "books";
     registerCustomFolder(cleanFolder);
-    fullPath = `${cleanFolder}/${sanitizeFileName(bookName)}`;
+    const fileName = sanitizeFileName(bookName);
+    targetPath = `${cleanFolder}/${fileName}`;
   }
 
-  const encodedPath = fullPath.split("/").map(encodeURIComponent).join("/");
+  const encodedPath = targetPath.split("/").map(encodeURIComponent).join("/");
   const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${encodedPath}`;
 
   let existingSha = null;
@@ -335,7 +488,7 @@ async function saveBookToGitHub(bookName, items, existingFullPath = "", targetFo
       word: item.word,
       phonetic: item.phonetic || "",
       meaning: item.meaning || "",
-      phrases: item.phrases.map(p => (p.zh ? `${p.foreign} | ${p.zh}` : p.foreign))
+      phrases: (item.phrases || []).map(p => (p.zh ? `${p.foreign} | ${p.zh}` : p.foreign))
     }))
   };
 
@@ -343,7 +496,7 @@ async function saveBookToGitHub(bookName, items, existingFullPath = "", targetFo
     method: "PUT",
     headers: { ...headers, "Content-Type": "application/json" },
     body: JSON.stringify({
-      message: `${existingSha ? "Update" : "Create"} vocab book: ${fullPath}`,
+      message: `${existingSha ? "Update" : "Create"} vocab book: ${targetPath}`,
       content: utf8ToBase64(JSON.stringify(payload, null, 2)),
       branch,
       ...(existingSha ? { sha: existingSha } : {})
@@ -352,13 +505,14 @@ async function saveBookToGitHub(bookName, items, existingFullPath = "", targetFo
 
   const data = await putRes.json();
   if (!putRes.ok) throw new Error(`GitHub 保存失败：${data.message || putRes.status}`);
-  return `repo:${fullPath}`;
+  return `repo:${targetPath}`;
 }
 
 async function deleteBookFromGitHub(fullPath) {
   const { owner, repo, branch } = getRepoConfig();
   const headers = getGhHeaders(true);
-  const encodedPath = fullPath.split("/").map(encodeURIComponent).join("/");
+  const normalizedPath = fullPath.includes("/") ? fullPath : `books/${fullPath}`;
+  const encodedPath = normalizedPath.split("/").map(encodeURIComponent).join("/");
   const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${encodedPath}`;
 
   const checkRes = await fetch(`${apiUrl}?ref=${branch}`, { cache: "no-store", headers });
@@ -368,12 +522,12 @@ async function deleteBookFromGitHub(fullPath) {
   const delRes = await fetch(apiUrl, {
     method: "DELETE",
     headers: { ...headers, "Content-Type": "application/json" },
-    body: JSON.stringify({ message: `Delete vocab book: ${fullPath}`, sha: meta.sha, branch })
+    body: JSON.stringify({ message: `Delete vocab book: ${normalizedPath}`, sha: meta.sha, branch })
   });
 
   if (!delRes.ok) {
     const err = await delRes.json();
-    throw new Error(`删除 ${fullPath} 失败：${err.message || delRes.status}`);
+    throw new Error(`删除 ${normalizedPath} 失败：${err.message || delRes.status}`);
   }
 }
 
@@ -441,7 +595,7 @@ async function selectBook(bookId) {
   if (book.source === "repo" && !book.items) {
     el("cardWord").textContent = "加载中...";
     const { owner, repo, branch } = getRepoConfig();
-    const encodedPath = book.path.split("/").map(encodeURIComponent).join("/");
+    const encodedPath = book.file.split("/").map(encodeURIComponent).join("/");
     const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${encodedPath}?ref=${branch}`;
     const res = await fetch(apiUrl, { cache: "no-store", headers: getGhHeaders(false) });
     const meta = await res.json();
@@ -533,134 +687,6 @@ function parseImportedContent(rawText) {
     .filter(i => i.word);
 }
 
-// 4. 收藏册逻辑（双击收藏 / 勾选背诵 / 存 GitHub 文件夹 / 导出）
-function loadFavorites() {
-  try { return JSON.parse(localStorage.getItem(STORAGE_FAVORITES) || "[]"); } catch { return []; }
-}
-
-function saveFavorites() {
-  localStorage.setItem(STORAGE_FAVORITES, JSON.stringify(state.favorites));
-}
-
-function isWordFavorited(word) {
-  const key = String(word || "").trim().toLowerCase();
-  return state.favorites.some(f => f.word.trim().toLowerCase() === key);
-}
-
-function showFavToast(msg) {
-  const toast = el("favToast");
-  if (!toast) return;
-  toast.textContent = msg;
-  toast.classList.add("show");
-  clearTimeout(state.toastTimeout);
-  state.toastTimeout = setTimeout(() => toast.classList.remove("show"), 1400);
-}
-
-function toggleFavoriteCurrentWord() {
-  if (state.filteredItems.length === 0) return;
-  const item = state.filteredItems[state.index];
-  if (!item || !item.word) return;
-
-  const key = item.word.trim().toLowerCase();
-  const idx = state.favorites.findIndex(f => f.word.trim().toLowerCase() === key);
-
-  if (idx >= 0) {
-    state.favorites.splice(idx, 1);
-    saveFavorites();
-    showFavToast(`☆ 已取消收藏：${item.word}`);
-  } else {
-    state.favorites.unshift({
-      ...JSON.parse(JSON.stringify(item)),
-      savedAt: Date.now()
-    });
-    saveFavorites();
-    if (document.body.classList.contains("pure-fullscreen")) {
-      state.favAddedInFullscreen++;
-    }
-    showFavToast(`★ 已收藏：${item.word}`);
-  }
-
-  updateCardFavBadge();
-}
-
-function updateCardFavBadge() {
-  const badge = el("cardFavBadge");
-  if (!badge) return;
-  if (state.filteredItems.length === 0) {
-    badge.style.display = "none";
-    return;
-  }
-  const current = state.filteredItems[state.index];
-  badge.style.display = current && isWordFavorited(current.word) ? "inline-block" : "none";
-}
-
-function openFavoritesModal() {
-  el("favModalTitle").textContent = `生词收藏册 (${state.favorites.length})`;
-  if (!el("favFileNameInput").value) {
-    el("favFileNameInput").value = `favorites_${new Date().toISOString().slice(0, 10)}`;
-  }
-  renderFavoritesList();
-  el("favoritesDialog").showModal();
-}
-
-function renderFavoritesList() {
-  const container = el("favWordList");
-  container.innerHTML = "";
-  el("selectAllFavsChk").checked = state.favorites.length > 0;
-
-  if (state.favorites.length === 0) {
-    container.innerHTML = `<div style="padding:14px;font-size:12px;color:var(--subtext);text-align:center;">暂无收藏生词（背诵时双击页面任意空白处即可自动收藏）</div>`;
-    return;
-  }
-
-  state.favorites.forEach((item, idx) => {
-    const label = document.createElement("label");
-    label.className = "book-check-item";
-
-    const chk = document.createElement("input");
-    chk.type = "checkbox";
-    chk.value = String(idx);
-    chk.className = "fav-word-chk";
-    chk.checked = true;
-
-    const info = document.createElement("div");
-    info.className = "fav-item-main";
-
-    const wLine = document.createElement("span");
-    wLine.className = "fav-item-word";
-    wLine.textContent = `${item.word} ${item.phonetic || ""}`.trim();
-
-    const mLine = document.createElement("span");
-    mLine.className = "fav-item-sub";
-    mLine.textContent = item.meaning || "无释义";
-
-    info.append(wLine, mLine);
-
-    const badge = document.createElement("span");
-    badge.className = "tag-cloud";
-    badge.textContent = item.category || "默认";
-
-    label.append(chk, info, badge);
-    container.appendChild(label);
-  });
-}
-
-function getSelectedFavoriteIndices() {
-  return [...document.querySelectorAll(".fav-word-chk:checked")].map(c => parseInt(c.value, 10));
-}
-
-function downloadTextFile(filename, content, mime = "text/plain;charset=utf-8") {
-  const blob = new Blob([content], { type: mime });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
 // 5. 分类过滤与卡片渲染
 function buildCategoryFilter() {
   const cats = [...new Set(state.allItems.map(i => i.category))];
@@ -694,7 +720,7 @@ function renderCard(hideMeaning = false) {
     el("cardMeaning").textContent = "请切换分类或点击左上角导入词库";
     el("cardPhrases").innerHTML = "";
     el("progressText").textContent = "0 / 0";
-    updateCardFavBadge();
+    updateFavBadgeUI();
     return;
   }
 
@@ -724,7 +750,7 @@ function renderCard(hideMeaning = false) {
   });
 
   el("progressText").textContent = `${state.index + 1} / ${total}`;
-  updateCardFavBadge();
+  updateFavBadgeUI();
 }
 
 function revealMeaningNow() {
@@ -1068,7 +1094,6 @@ function setupSleepTimer() {
 }
 
 async function enterPureFullscreen() {
-  state.favAddedInFullscreen = 0;
   document.body.classList.add("pure-fullscreen");
   requestWakeLock();
   try {
@@ -1080,12 +1105,6 @@ async function exitPureFullscreen() {
   document.body.classList.remove("pure-fullscreen");
   el("fsHud").classList.remove("visible");
   if (document.fullscreenElement) await document.exitFullscreen().catch(() => {});
-
-  // 若在全屏背诵过程中双击收藏了生词，退出全屏时自动展示收藏册页面
-  if (state.favAddedInFullscreen > 0) {
-    state.favAddedInFullscreen = 0;
-    openFavoritesModal();
-  }
 }
 
 async function toggleOrientation() {
@@ -1100,7 +1119,7 @@ async function toggleOrientation() {
   el("app").classList.toggle("css-landscape", state.isCssLandscape);
 }
 
-// 9. 设置持久化与一键导入两半密钥
+// 9. 设置持久化与事件绑定
 function savePrefs() {
   localStorage.setItem(STORAGE_PREFS, JSON.stringify({
     theme: document.body.dataset.theme,
@@ -1146,134 +1165,128 @@ function applyTheme(themeVal, persist = true) {
   if (persist) savePrefs();
 }
 
-// 一键导入两半密钥（严格保持：前半段 + 后半段 顺序）
-async function handleOneClickImportToken() {
-  const builtIn = getBuiltInToken();
-  if (builtIn) {
-    el("ghTokenInput").value = builtIn;
-    savePrefs();
-    updateTokenStatus();
-    el("oneClickImportTokenBtn").textContent = "已填补 ✓";
-    setTimeout(() => { el("oneClickImportTokenBtn").textContent = "一键导入密钥"; }, 2000);
-    await reloadAllBooks();
-    return;
-  }
-
-  let raw = "";
-  try {
-    raw = await navigator.clipboard.readText();
-  } catch (_) {}
-
-  if (!raw || !raw.trim()) {
-    raw = prompt("请粘贴两半密钥（前半段在第一行，后半段在第二行）：") || "";
-  }
-  if (!raw.trim()) return;
-
-  // 按换行或空白拆分为两段，严格按出现顺序 [0]前半段 + [1]后半段 拼接
-  const parts = raw
-    .split(/\r?\n|\s+/)
-    .map(s => s.trim())
-    .filter(Boolean);
-
-  const combined = parts.length >= 2 ? `${parts[0]}${parts[1]}` : parts[0];
-  el("ghTokenInput").value = combined;
-  savePrefs();
-  updateTokenStatus();
-  el("oneClickImportTokenBtn").textContent = "已合并填补 ✓";
-  setTimeout(() => { el("oneClickImportTokenBtn").textContent = "一键导入密钥"; }, 2000);
-  await reloadAllBooks();
-}
-
 function bindEvents() {
   el("openSettingsBtn").addEventListener("click", () => {
-    updateTokenStatus();
+    applyAutoTokenIfNeeded();
     el("settingsDialog").showModal();
   });
+  el("openFavsBtn").addEventListener("click", openFavoritesModal);
   el("openBooksBtn").addEventListener("click", () => {
     renderBookManageList();
     el("booksDialog").showModal();
   });
   el("openImportBtn").addEventListener("click", () => el("importDialog").showModal());
-  el("openFavoritesBtn").addEventListener("click", openFavoritesModal);
   el("fullscreenBtn").addEventListener("click", enterPureFullscreen);
 
   document.querySelectorAll("[data-close]").forEach(btn => {
     btn.addEventListener("click", () => el(btn.dataset.close).close());
   });
-  [el("settingsDialog"), el("favoritesDialog"), el("booksDialog"), el("editorDialog"), el("importDialog")].forEach(dlg => {
+  [el("settingsDialog"), el("favsDialog"), el("booksDialog"), el("editorDialog"), el("importDialog")].forEach(dlg => {
     dlg.addEventListener("click", e => { if (e.target === dlg) dlg.close(); });
   });
 
-  // 一键导入两半密钥
-  el("oneClickImportTokenBtn").addEventListener("click", handleOneClickImportToken);
+  // 舞台区域统一手势：双击任意非按钮区域自动收藏/取消收藏；单击揭示意思或唤出全屏控制条
+  let lastStageTapTime = 0;
+  let singleTapTimer = null;
 
-  // 页面与全屏下双击任意按钮以外区域自动收藏当前单词
-  el("app").addEventListener("click", e => {
-    if (e.target.closest("button, select, input, textarea, label, dialog, .fs-hud")) return;
+  el("stage").addEventListener("click", e => {
+    if (e.target.closest("button") || e.target.closest("#fsHud")) return;
 
     const now = Date.now();
-    const dt = now - state.lastTapTime;
-    const dx = Math.abs(e.clientX - state.lastTapX);
-    const dy = Math.abs(e.clientY - state.lastTapY);
-
-    state.lastTapTime = now;
-    state.lastTapX = e.clientX;
-    state.lastTapY = e.clientY;
-
-    if (dt > 0 && dt < 320 && dx < 45 && dy < 45) {
-      state.lastTapTime = 0;
+    if (now - lastStageTapTime < 320) {
+      clearTimeout(singleTapTimer);
+      lastStageTapTime = 0;
       toggleFavoriteCurrentWord();
+      return;
     }
+
+    lastStageTapTime = now;
+    singleTapTimer = setTimeout(() => {
+      if (e.target.closest("#vocabCard") && el("vocabCard").classList.contains("hide-meaning")) {
+        revealMeaningNow();
+      } else if (document.body.classList.contains("pure-fullscreen")) {
+        const hud = el("fsHud");
+        hud.classList.add("visible");
+        clearTimeout(state.hudTimeout);
+        state.hudTimeout = setTimeout(() => hud.classList.remove("visible"), 3000);
+      }
+    }, 320);
   });
 
-  // 收藏册弹窗交互
+  // 收藏册弹窗操作
   el("selectAllFavsChk").addEventListener("change", e => {
-    document.querySelectorAll(".fav-word-chk").forEach(c => { c.checked = e.target.checked; });
-  });
-
-  el("studySelectedFavsBtn").addEventListener("click", () => {
-    const idxs = getSelectedFavoriteIndices();
-    if (idxs.length === 0) return alert("请先勾选要背诵的收藏单词");
-    stopAutoPlay();
-    state.allItems = idxs.map(i => state.favorites[i]).filter(Boolean);
-    buildCategoryFilter();
-    applyCategoryFilter("ALL");
-    el("favoritesDialog").close();
+    document.querySelectorAll(".fav-select-chk").forEach(c => { c.checked = e.target.checked; });
   });
 
   el("removeSelectedFavsBtn").addEventListener("click", () => {
-    const idxSet = new Set(getSelectedFavoriteIndices());
-    if (idxSet.size === 0) return alert("请先勾选要移出的单词");
-    state.favorites = state.favorites.filter((_, i) => !idxSet.has(i));
+    const selectedSet = new Set(
+      [...document.querySelectorAll(".fav-select-chk:checked")].map(c => parseInt(c.value, 10))
+    );
+    if (selectedSet.size === 0) return alert("请先勾选要移除的收藏单词");
+    state.favorites = state.favorites.filter((_, idx) => !selectedSet.has(idx));
     saveFavorites();
-    el("favModalTitle").textContent = `生词收藏册 (${state.favorites.length})`;
-    renderFavoritesList();
-    updateCardFavBadge();
+    renderFavsManageList();
   });
 
-  el("saveFavsToCloudBtn").addEventListener("click", async () => {
-    const idxs = getSelectedFavoriteIndices();
-    if (idxs.length === 0) return alert("请先勾选要保存的收藏单词");
+  // 使用勾选的收藏单词重新作为收藏册进行背诵
+  el("reciteSelectedFavsBtn").addEventListener("click", () => {
+    const chosen = getSelectedFavoriteItems();
+    if (chosen.length === 0) return alert("请至少勾选一个收藏单词");
 
-    const folder = el("favFolderInput").value.trim() || "books/favorites";
-    const fileName = el("favFileNameInput").value.trim() || `favorites_${new Date().toISOString().slice(0, 10)}`;
-    const customCat = el("favCustomCategoryInput").value.trim();
+    stopAutoPlay();
+    state.currentBookId = "fav:temp";
+    state.allItems = JSON.parse(JSON.stringify(chosen));
+    buildCategoryFilter();
+    applyCategoryFilter("ALL");
+    el("favsDialog").close();
+    showToast(`已载入 ${chosen.length} 个收藏词，可随时开始背诵`);
+  });
 
-    const itemsToSave = idxs.map(i => {
-      const copy = JSON.parse(JSON.stringify(state.favorites[i]));
-      if (customCat) copy.category = customCat;
-      return copy;
+  // 导出所选收藏为 .txt 文件
+  el("exportFavsBtn").addEventListener("click", () => {
+    const chosen = getSelectedFavoriteItems();
+    if (chosen.length === 0) return alert("请先勾选要导出的收藏单词");
+
+    const lines = chosen.map(item => {
+      const fStr = (item.phrases || []).map(p => p.foreign).filter(Boolean).join(";");
+      const zStr = (item.phrases || []).map(p => p.zh).filter(Boolean).join(";");
+      return `${item.word}|${item.meaning || ""}|${item.phonetic || ""}|${fStr}|${zStr}|${item.category || "收藏"}`;
     });
 
-    const btn = el("saveFavsToCloudBtn");
+    const blob = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `收藏词库_${new Date().toISOString().slice(0, 10)}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  });
+
+  // 保存所选收藏到 GitHub 新文件夹并设置分类
+  el("saveFavsCloudBtn").addEventListener("click", async () => {
+    const chosen = getSelectedFavoriteItems();
+    if (chosen.length === 0) return alert("请先勾选要保存的收藏单词");
+
+    const folderPath = el("favTargetFolderInput").value.trim() || "books/favorites";
+    const bookName = el("favTargetBookInput").value.trim() || `收藏精选_${new Date().toISOString().slice(0, 10)}`;
+    const customCat = el("favTargetCatInput").value.trim();
+
+    const itemsToSave = chosen.map(item => ({
+      ...item,
+      category: customCat || item.category || "重点收藏"
+    }));
+
+    const btn = el("saveFavsCloudBtn");
     btn.disabled = true;
     btn.textContent = "保存中...";
 
     try {
-      const newRepoId = await saveBookToGitHub(fileName, itemsToSave, "", folder);
-      el("favoritesDialog").close();
+      const newRepoId = await saveBookToGitHub(bookName, itemsToSave, "", folderPath);
+      el("favsDialog").close();
       await reloadAllBooks(newRepoId);
-      alert(`已成功保存 ${itemsToSave.length} 个收藏单词至 GitHub：${folder}/`);
+      showToast(`已保存到 GitHub：${folderPath}/${sanitizeFileName(bookName)}`);
     } catch (err) {
       alert(err.message);
     } finally {
@@ -1282,52 +1295,7 @@ function bindEvents() {
     }
   });
 
-  el("exportFavTxtBtn").addEventListener("click", () => {
-    const idxs = getSelectedFavoriteIndices();
-    if (idxs.length === 0) return alert("请先勾选要导出的收藏单词");
-    const lines = idxs.map(i => {
-      const it = state.favorites[i];
-      const fStr = it.phrases.map(p => p.foreign).filter(Boolean).join(";");
-      const zStr = it.phrases.map(p => p.zh).filter(Boolean).join(";");
-      return `${it.word}|${it.meaning}|${it.phonetic}|${fStr}|${zStr}|${it.category}`;
-    });
-    downloadTextFile(`favorites_${new Date().toISOString().slice(0, 10)}.txt`, lines.join("\n"));
-  });
-
-  el("exportFavJsonBtn").addEventListener("click", () => {
-    const idxs = getSelectedFavoriteIndices();
-    if (idxs.length === 0) return alert("请先勾选要导出的收藏单词");
-    const payload = {
-      bookName: "生词收藏册导出",
-      exportedAt: new Date().toISOString(),
-      items: idxs.map(i => state.favorites[i])
-    };
-    downloadTextFile(
-      `favorites_${new Date().toISOString().slice(0, 10)}.json`,
-      JSON.stringify(payload, null, 2),
-      "application/json;charset=utf-8"
-    );
-  });
-
-  el("copyFavTextBtn").addEventListener("click", async () => {
-    const idxs = getSelectedFavoriteIndices();
-    if (idxs.length === 0) return alert("请先勾选要复制的收藏单词");
-    const lines = idxs.map(i => {
-      const it = state.favorites[i];
-      const fStr = it.phrases.map(p => p.foreign).filter(Boolean).join(";");
-      const zStr = it.phrases.map(p => p.zh).filter(Boolean).join(";");
-      return `${it.word}|${it.meaning}|${it.phonetic}|${fStr}|${zStr}|${it.category}`;
-    }).join("\n");
-    try {
-      await navigator.clipboard.writeText(lines);
-      el("copyFavTextBtn").textContent = "已复制 ✓";
-      setTimeout(() => { el("copyFavTextBtn").textContent = "复制文本"; }, 2000);
-    } catch (_) {
-      prompt("请复制以下收藏单词文本：", lines);
-    }
-  });
-
-  // 试听与导入样本
+  // 试听三语
   el("testVoiceBtn").addEventListener("click", async () => {
     const btn = el("testVoiceBtn");
     btn.disabled = true;
@@ -1449,8 +1417,8 @@ function bindEvents() {
 
     try {
       const currentBook = state.books.find(b => b.id === state.currentBookId);
-      const existingPath = currentBook?.source === "repo" ? currentBook.path : "";
-      const newRepoId = await saveBookToGitHub(rawName, cleanItems, existingPath, "books");
+      const existingFile = currentBook?.source === "repo" ? currentBook.file : "";
+      const newRepoId = await saveBookToGitHub(rawName, cleanItems, existingFile);
       el("editorDialog").close();
       await reloadAllBooks(newRepoId);
     } catch (err) {
@@ -1481,7 +1449,7 @@ function bindEvents() {
       btn.textContent = "保存中...";
 
       if (target === "repo") {
-        const newRepoId = await saveBookToGitHub(rawName, items, "", "books");
+        const newRepoId = await saveBookToGitHub(rawName, items);
         el("importDialog").close();
         el("importTextArea").value = "";
         el("importBookName").value = "";
@@ -1549,25 +1517,14 @@ function bindEvents() {
     if (state.isPlaying) { stopAutoPlay(); startAutoPlay(); } else { renderCard(false); }
   });
 
-  el("vocabCard").addEventListener("click", () => {
-    if (el("vocabCard").classList.contains("hide-meaning")) revealMeaningNow();
-  });
-
   el("rotateBtn").addEventListener("click", toggleOrientation);
   el("fsRotateToggle").addEventListener("click", e => { e.stopPropagation(); toggleOrientation(); });
   el("fsExitBtn").addEventListener("click", e => { e.stopPropagation(); exitPureFullscreen(); });
   el("fsRevealBtn").addEventListener("click", e => { e.stopPropagation(); revealMeaningNow(); });
+  el("fsFavBtn").addEventListener("click", e => { e.stopPropagation(); toggleFavoriteCurrentWord(); });
   el("fsPlayToggle").addEventListener("click", e => {
     e.stopPropagation();
     state.isPlaying ? stopAutoPlay() : startAutoPlay();
-  });
-
-  el("stage").addEventListener("click", () => {
-    if (!document.body.classList.contains("pure-fullscreen")) return;
-    const hud = el("fsHud");
-    hud.classList.add("visible");
-    clearTimeout(state.hudTimeout);
-    state.hudTimeout = setTimeout(() => hud.classList.remove("visible"), 3000);
   });
 }
 
