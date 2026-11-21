@@ -90,7 +90,6 @@ function initVoices() {
 
   load();
   window.speechSynthesis.onvoiceschanged = load;
-  // 兼容部分安卓浏览器延迟加载人声列表
   setTimeout(load, 400);
   setTimeout(load, 1200);
 }
@@ -112,7 +111,7 @@ function renderBookOptions() {
   const select = el("bookSelect");
   select.innerHTML = "";
   if (state.books.length === 0) {
-    select.innerHTML = `<option value="">暂无词库（点击右上角导入）</option>`;
+    select.innerHTML = `<option value="">暂无词库（请点击左上角导入）</option>`;
     return;
   }
   state.books.forEach(b => {
@@ -146,24 +145,20 @@ async function selectBook(bookId) {
   applyCategoryFilter("ALL");
 }
 
-// 拆分双语短语/例句：返回 { foreign, zh }
 function splitBilingualLine(raw) {
   const text = String(raw || "").trim();
   if (!text) return { foreign: "", zh: "" };
 
-  // 优先支持显式竖线分隔："pure serendipity | 纯属机缘巧合"
   if (text.includes("|")) {
     const [f, ...rest] = text.split("|");
     return { foreign: f.trim(), zh: rest.join("|").trim() };
   }
 
-  // 匹配尾部连续中文解释部分（兼容日语假名+汉字在前的句子）
   const match = text.match(/^(.+?)\s+([\u4e00-\u9fa5\u3000-\u303f\uff00-\uffef，。！？；：、（）\s]+)$/);
   if (match) {
     return { foreign: match[1].trim(), zh: match[2].trim() };
   }
 
-  // 若整句均为中文
   if (/^[\u4e00-\u9fa5\s，。！？；：、（）]+$/.test(text)) {
     return { foreign: "", zh: text };
   }
@@ -186,7 +181,6 @@ function normalizeItems(rawList) {
       return splitBilingualLine(p);
     });
 
-    // 若 JSON 中包含 example / exampleMeaning 字段，也一并加入展示与朗读
     if (item.example) {
       const ex = splitBilingualLine(item.example);
       parsedPhrases.push({
@@ -300,7 +294,7 @@ function revealMeaningNow() {
   el("vocabCard").classList.remove("hide-meaning");
 }
 
-// 5. 高可靠 TTS 朗读核心（防 GC 回收 + 超时看门狗 + 多人声支持）
+// 5. 高可靠 TTS 朗读核心
 function stopSpeechEngine() {
   if (!("speechSynthesis" in window)) return;
   activeUtterances.clear();
@@ -320,7 +314,6 @@ function speakText(text, isChinese = false) {
     const utter = new SpeechSynthesisUtterance(cleanText);
     utter.rate = rate;
 
-    // 绑定指定人声或自动语言
     if (isChinese) {
       utter.lang = "zh-CN";
       const zhUri = el("zhVoiceSelect").value;
@@ -338,7 +331,6 @@ function speakText(text, isChinese = false) {
       }
     }
 
-    // 防止安卓 WebView 自动暂停或丢失 onend 回调
     const maxDurationMs = Math.max(2800, Math.ceil((cleanText.length * 420) / rate) + 2200);
     const watchdog = setTimeout(() => finish(), maxDurationMs);
     const resumeTimer = setInterval(() => {
@@ -368,7 +360,6 @@ function speakText(text, isChinese = false) {
   });
 }
 
-// 朗读外文部分（单词 + 外文词组/例句）
 async function speakForeignSequence(item, token) {
   if (!item || token !== state.playToken) return;
   await speakText(item.word, false);
@@ -384,12 +375,10 @@ async function speakForeignSequence(item, token) {
   }
 }
 
-// 朗读中文部分（单词释义 + 词组/例句中文意思）
 async function speakChineseSequence(item, token) {
   if (!item || token !== state.playToken || !el("readZhChk").checked) return;
 
   if (item.meaning) {
-    // 去掉词性缩写如 n. / adj. / v. 让中文朗读更自然
     const cleanMeaning = item.meaning.replace(/\b(n|v|vt|vi|adj|adv|prep|conj|pron|num|art|int)\.\s*/gi, "");
     await speakText(cleanMeaning, true);
   }
@@ -405,7 +394,7 @@ async function speakChineseSequence(item, token) {
   }
 }
 
-// 6. 自动播放主循环（思考阶段 -> 揭示意思阶段 -> 自动跳下一个）
+// 6. 自动播放主循环
 const waitMs = ms => new Promise(r => setTimeout(r, Math.max(0, ms)));
 
 async function startAutoPlay() {
@@ -426,7 +415,6 @@ async function startAutoPlay() {
     const thinkSec = parseFloat(el("thinkTime").value) || 0;
     const staySec = parseFloat(el("stayTime").value) || 3.5;
 
-    // 阶段一：若设置了思考时间，先仅展示原文并朗读外文
     renderCard(thinkSec > 0);
     await Promise.all([
       waitMs(thinkSec * 1000),
@@ -434,7 +422,6 @@ async function startAutoPlay() {
     ]);
     if (!state.isPlaying || token !== state.playToken) break;
 
-    // 阶段二：在原文下方揭示中文意思，朗读中文并停留设定时长
     revealMeaningNow();
     await Promise.all([
       waitMs(staySec * 1000),
@@ -442,7 +429,6 @@ async function startAutoPlay() {
     ]);
     if (!state.isPlaying || token !== state.playToken) break;
 
-    // 自动跳到下一个单词
     state.index = (state.index + 1) % state.filteredItems.length;
   }
 }
@@ -455,7 +441,6 @@ function stopAutoPlay() {
   releaseWakeLock();
 }
 
-// 单次朗读（立即显示完整意思并顺序朗读外文+中文）
 async function triggerSingleSpeak() {
   if (state.filteredItems.length === 0) return;
   if (state.isPlaying) {
@@ -499,6 +484,7 @@ function setupSleepTimer() {
 
 // 8. 纯净全屏与横竖屏切换
 async function enterPureFullscreen() {
+  el("settingsDialog").close();
   document.body.classList.add("pure-fullscreen");
   requestWakeLock();
   try {
@@ -570,6 +556,21 @@ function applyTheme(themeVal, persist = true) {
 }
 
 function bindEvents() {
+  // 左上角 3 个圆形图标按钮弹窗触发
+  el("openSettingsBtn").addEventListener("click", () => el("settingsDialog").showModal());
+  el("openBooksBtn").addEventListener("click", () => el("booksDialog").showModal());
+  el("openImportBtn").addEventListener("click", () => el("importDialog").showModal());
+
+  // 通用关闭按钮与点击遮罩关闭弹窗
+  document.querySelectorAll("[data-close]").forEach(btn => {
+    btn.addEventListener("click", () => el(btn.dataset.close).close());
+  });
+  [el("settingsDialog"), el("booksDialog"), el("importDialog")].forEach(dlg => {
+    dlg.addEventListener("click", e => {
+      if (e.target === dlg) dlg.close();
+    });
+  });
+
   el("bookSelect").addEventListener("change", e => selectBook(e.target.value));
   el("categorySelect").addEventListener("change", e => {
     stopAutoPlay();
@@ -626,7 +627,6 @@ function bindEvents() {
     }
   });
 
-  // 思考阶段轻触卡片可提前显示释义
   el("vocabCard").addEventListener("click", () => {
     if (el("vocabCard").classList.contains("hide-meaning")) {
       revealMeaningNow();
@@ -651,8 +651,6 @@ function bindEvents() {
     state.hudTimeout = setTimeout(() => hud.classList.remove("visible"), 3000);
   });
 
-  // 导入弹窗交互
-  el("openImportBtn").addEventListener("click", () => el("importDialog").showModal());
   el("importFileInput").addEventListener("change", async e => {
     const file = e.target.files[0];
     if (!file) return;
@@ -696,7 +694,7 @@ function bindEvents() {
     saveLocalBooks(locals);
     state.books = state.books.filter(b => b.id !== state.currentBookId);
     renderBookOptions();
-    el("importDialog").close();
+    el("booksDialog").close();
     if (state.books.length > 0) await selectBook(state.books[0].id);
   });
 }
