@@ -1,31 +1,44 @@
 const STORAGE_LOCAL_BOOKS = "wf_local_books_v4";
-const STORAGE_PREFS = "wf_prefs_v5";
+const STORAGE_PREFS = "wf_prefs_v6";
 
-// 全局唯一音频播放器与 MP3 缓存（确保手机端连续循环不卡死、重复词 0 延迟）
 const audioPlayer = new Audio();
 const ttsBlobCache = new Map();
 const activeUtterances = new Set();
 
-// 精选微软 Neural 高拟真发音人预设
-const CURATED_FOREIGN_VOICES = [
-  { id: "edge:en-US-JennyNeural", label: "微软 Jenny (美式女声·亲切默认)" },
-  { id: "edge:en-US-AriaNeural", label: "微软 Aria (美式女声·播报清晰)" },
-  { id: "edge:en-US-GuyNeural", label: "微软 Guy (美式男声·沉稳)" },
-  { id: "edge:en-US-ChristopherNeural", label: "微软 Christopher (美式男声·睡前温和)" },
-  { id: "edge:en-US-AnaNeural", label: "微软 Ana (美式少女音·清脆)" },
-  { id: "edge:en-GB-SoniaNeural", label: "微软 Sonia (英式女声·标准伦敦音)" },
-  { id: "edge:en-GB-RyanNeural", label: "微软 Ryan (英式男声·磁性英音)" },
-  { id: "edge:ja-JP-NanamiNeural", label: "微软 七海 Nanami (日语女声)" },
-  { id: "edge:ja-JP-KeitaNeural", label: "微软 圭太 Keita (日语男声)" }
+// 1. 英语独立人声预设（微软云端 + Google 网页在线）
+const EN_VOICES = [
+  { id: "edge:en-US-JennyNeural", label: "英语 · 微软 Jenny (美式女声·亲切)" },
+  { id: "edge:en-US-AriaNeural", label: "英语 · 微软 Aria (美式女声·播报)" },
+  { id: "edge:en-US-GuyNeural", label: "英语 · 微软 Guy (美式男声·沉稳)" },
+  { id: "edge:en-US-ChristopherNeural", label: "英语 · 微软 Christopher (美式男声·睡前)" },
+  { id: "edge:en-US-AnaNeural", label: "英语 · 微软 Ana (美式少女音)" },
+  { id: "edge:en-GB-SoniaNeural", label: "英语 · 微软 Sonia (英式女声·伦敦音)" },
+  { id: "edge:en-GB-RyanNeural", label: "英语 · 微软 Ryan (英式男声·磁性)" },
+  { id: "gtts:en-US", label: "英语 · Google 网页在线 (美式 US)" },
+  { id: "gtts:en-GB", label: "英语 · Google 网页在线 (英式 UK)" },
+  { id: "gtts:en-AU", label: "英语 · Google 网页在线 (澳式 AU)" }
 ];
 
-const CURATED_ZH_VOICES = [
-  { id: "edge:zh-CN-XiaoxiaoNeural", label: "微软 晓晓 (普通话女声·温暖默认)" },
-  { id: "edge:zh-CN-XiaoyiNeural", label: "微软 晓伊 (普通话女声·睡前温柔)" },
-  { id: "edge:zh-CN-YunxiNeural", label: "微软 云希 (普通话男声·阳光青年)" },
-  { id: "edge:zh-CN-YunjianNeural", label: "微软 云健 (普通话男声·沉稳磁性)" },
-  { id: "edge:zh-CN-XiaochenNeural", label: "微软 晓辰 (普通话女声·知性自然)" },
-  { id: "edge:zh-HK-HiuMaanNeural", label: "微软 晓曼 (香港粤语女声)" }
+// 2. 日语独立人声预设（微软云端 + Google 网页在线）
+const JA_VOICES = [
+  { id: "edge:ja-JP-NanamiNeural", label: "日语 · 微软 七海 Nanami (女声·自然)" },
+  { id: "edge:ja-JP-KeitaNeural", label: "日语 · 微软 圭太 Keita (男声·清爽)" },
+  { id: "edge:ja-JP-AoiNeural", label: "日语 · 微软 葵 Aoi (女声·轻柔)" },
+  { id: "edge:ja-JP-DaichiNeural", label: "日语 · 微软 大地 Daichi (男声·沉稳)" },
+  { id: "edge:ja-JP-MayuNeural", label: "日语 · 微软 真由 Mayu (女声·清晰)" },
+  { id: "gtts:ja", label: "日语 · Google 网页在线 (标准 JP)" }
+];
+
+// 3. 中文独立人声预设（微软云端 + Google 网页在线）
+const ZH_VOICES = [
+  { id: "edge:zh-CN-XiaoxiaoNeural", label: "中文 · 微软 晓晓 (普通话女声·温暖)" },
+  { id: "edge:zh-CN-XiaoyiNeural", label: "中文 · 微软 晓伊 (普通话女声·睡前)" },
+  { id: "edge:zh-CN-YunxiNeural", label: "中文 · 微软 云希 (普通话男声·青年)" },
+  { id: "edge:zh-CN-YunjianNeural", label: "中文 · 微软 云健 (普通话男声·磁性)" },
+  { id: "edge:zh-HK-HiuMaanNeural", label: "中文 · 微软 晓曼 (香港粤语女声)" },
+  { id: "gtts:zh-CN", label: "中文 · Google 网页在线 (普通话 CN)" },
+  { id: "gtts:zh-TW", label: "中文 · Google 网页在线 (台湾国语 TW)" },
+  { id: "gtts:zh-HK", label: "中文 · Google 网页在线 (香港粤语 HK)" }
 ];
 
 const state = {
@@ -45,6 +58,11 @@ const state = {
 };
 
 const el = id => document.getElementById(id);
+
+function setTtsStatus(msg) {
+  const box = el("ttsStatusText");
+  if (box) box.textContent = msg;
+}
 
 function utf8ToBase64(str) {
   const bytes = new TextEncoder().encode(str);
@@ -88,94 +106,71 @@ async function init() {
   await reloadAllBooks();
 }
 
-// 2. 加载第三方微软云端人声 + 浏览器内置 Google/系统人声
+// 2. 初始化三语独立下拉列表（微软云端 + Google 网页在线 + 本地浏览器引擎）
 async function initVoices() {
-  const foreignSel = el("foreignVoiceSelect");
+  const enSel = el("enVoiceSelect");
+  const jaSel = el("jaVoiceSelect");
   const zhSel = el("zhVoiceSelect");
 
-  const renderVoiceSelects = (extraCloudVoices = [], systemVoices = []) => {
+  const renderSelect = (selectEl, presets, extraCloud, systemList, langPrefix, defaultVal) => {
     const saved = JSON.parse(localStorage.getItem(STORAGE_PREFS) || "{}");
-    const prevF = foreignSel.value || saved.foreignVoiceURI || "edge:en-US-JennyNeural";
-    const prevZ = zhSel.value || saved.zhVoiceURI || "edge:zh-CN-XiaoxiaoNeural";
+    const savedMap = {
+      enVoiceSelect: saved.enVoiceURI,
+      jaVoiceSelect: saved.jaVoiceURI,
+      zhVoiceSelect: saved.zhVoiceURI
+    };
+    const currentVal = selectEl.value || savedMap[selectEl.id] || defaultVal;
 
-    foreignSel.innerHTML = "";
-    zhSel.innerHTML = "";
+    selectEl.innerHTML = "";
+    const cloudGroup = document.createElement("optgroup");
+    cloudGroup.label = "云端高清音源 (微软 / Google 网页在线)";
 
-    // 精选微软云端音源组
-    const fGroupCloud = document.createElement("optgroup");
-    fGroupCloud.label = "微软云端高清人声 (推荐)";
-    CURATED_FOREIGN_VOICES.forEach(v => {
+    const presetIds = new Set();
+    presets.forEach(v => {
+      presetIds.add(v.id);
       const opt = document.createElement("option");
       opt.value = v.id;
       opt.textContent = v.label;
-      fGroupCloud.appendChild(opt);
+      cloudGroup.appendChild(opt);
     });
 
-    const curatedIds = new Set([...CURATED_FOREIGN_VOICES, ...CURATED_ZH_VOICES].map(v => v.id));
-    extraCloudVoices.forEach(v => {
+    extraCloud.forEach(v => {
       const id = `edge:${v.ShortName}`;
-      if (curatedIds.has(id)) return;
-      const opt = document.createElement("option");
-      opt.value = id;
-      opt.textContent = `微软 ${v.ShortName}`;
-      if ((v.Locale || "").toLowerCase().startsWith("zh")) {
-        // 归入中文
-      } else if (/^(en|ja|ko|fr|de|es|ru)-/i.test(v.Locale || "")) {
-        fGroupCloud.appendChild(opt);
-      }
-    });
-    foreignSel.appendChild(fGroupCloud);
-
-    const zGroupCloud = document.createElement("optgroup");
-    zGroupCloud.label = "微软云端中文人声 (推荐)";
-    CURATED_ZH_VOICES.forEach(v => {
-      const opt = document.createElement("option");
-      opt.value = v.id;
-      opt.textContent = v.label;
-      zGroupCloud.appendChild(opt);
-    });
-    extraCloudVoices.forEach(v => {
-      const id = `edge:${v.ShortName}`;
-      if (!curatedIds.has(id) && (v.Locale || "").toLowerCase().startsWith("zh")) {
+      if (presetIds.has(id)) return;
+      if ((v.Locale || "").toLowerCase().startsWith(langPrefix)) {
         const opt = document.createElement("option");
         opt.value = id;
         opt.textContent = `微软 ${v.ShortName}`;
-        zGroupCloud.appendChild(opt);
+        cloudGroup.appendChild(opt);
       }
     });
-    zhSel.appendChild(zGroupCloud);
+    selectEl.appendChild(cloudGroup);
 
-    // 浏览器内置 Google / 本地引擎（离线备用）
-    if (systemVoices.length > 0) {
-      const fGroupSys = document.createElement("optgroup");
-      fGroupSys.label = "浏览器内置 / Google 本地引擎";
-      const zGroupSys = document.createElement("optgroup");
-      zGroupSys.label = "浏览器内置 / Google 中文引擎";
-
-      systemVoices.forEach(v => {
+    const matchedSys = systemList.filter(v => (v.lang || "").toLowerCase().startsWith(langPrefix));
+    if (matchedSys.length > 0) {
+      const sysGroup = document.createElement("optgroup");
+      sysGroup.label = "浏览器内置 / 系统本地引擎 (离线备用)";
+      matchedSys.forEach(v => {
         const opt = document.createElement("option");
         opt.value = `sys:${v.voiceURI}`;
-        opt.textContent = `${v.name} (${v.lang})`;
-        if ((v.lang || "").toLowerCase().startsWith("zh")) {
-          zGroupSys.appendChild(opt);
-        } else {
-          fGroupSys.appendChild(opt);
-        }
+        opt.textContent = `本地 · ${v.name} (${v.lang})`;
+        sysGroup.appendChild(opt);
       });
-
-      if (fGroupSys.children.length > 0) foreignSel.appendChild(fGroupSys);
-      if (zGroupSys.children.length > 0) zhSel.appendChild(zGroupSys);
+      selectEl.appendChild(sysGroup);
     }
 
-    foreignSel.value = prevF;
-    if (!foreignSel.value) foreignSel.value = "edge:en-US-JennyNeural";
-    zhSel.value = prevZ;
-    if (!zhSel.value) zhSel.value = "edge:zh-CN-XiaoxiaoNeural";
+    selectEl.value = currentVal;
+    if (!selectEl.value) selectEl.value = defaultVal;
   };
 
-  renderVoiceSelects([], []);
+  const refreshAll = (cloudList, sysList) => {
+    renderSelect(enSel, EN_VOICES, cloudList, sysList, "en", "edge:en-US-JennyNeural");
+    renderSelect(jaSel, JA_VOICES, cloudList, sysList, "ja", "edge:ja-JP-NanamiNeural");
+    renderSelect(zhSel, ZH_VOICES, cloudList, sysList, "zh", "edge:zh-CN-XiaoxiaoNeural");
+  };
 
-  // 异步拉取云端完整语音列表与系统列表
+  refreshAll([], []);
+
   let cloudList = [];
   try {
     const res = await fetch("/api/voices");
@@ -186,10 +181,10 @@ async function initVoices() {
     state.sysVoices = window.speechSynthesis.getVoices() || [];
     window.speechSynthesis.onvoiceschanged = () => {
       state.sysVoices = window.speechSynthesis.getVoices() || [];
-      renderVoiceSelects(cloudList, state.sysVoices);
+      refreshAll(cloudList, state.sysVoices);
     };
   }
-  renderVoiceSelects(cloudList, state.sysVoices);
+  refreshAll(cloudList, state.sysVoices);
 }
 
 // 3. GitHub 直连词库管理
@@ -425,8 +420,6 @@ function normalizeItems(rawList) {
   }).filter(i => i.word);
 }
 
-// 4. 极简导入解析器：支持制表符(\t) 或 竖线(|)
-// 列顺序：单词 | 单词意思 | 音标 | 句子 | 句子意思 | 分类（空则无）
 function parseImportedContent(rawText) {
   const trimmed = rawText.trim();
   if (!trimmed) return [];
@@ -468,7 +461,7 @@ function parseImportedContent(rawText) {
     .filter(i => i.word);
 }
 
-// 5. 分类过滤与卡片渲染
+// 4. 分类过滤与卡片渲染
 function buildCategoryFilter() {
   const cats = [...new Set(state.allItems.map(i => i.category))];
   const sel = el("categorySelect");
@@ -536,7 +529,7 @@ function revealMeaningNow() {
   el("vocabCard").classList.remove("hide-meaning");
 }
 
-// 6. 词库编辑器
+// 5. 词库编辑器
 function openBookEditor() {
   const book = state.books.find(b => b.id === state.currentBookId);
   if (!book) return alert("请先选择一本词库");
@@ -612,7 +605,7 @@ function renderEditorItems() {
   });
 }
 
-// 7. 第三方微软云端 TTS 核心（带缓存与系统离线自动回退）
+// 6. 三语独立云端发音引擎（微软 Neural / Google 网页在线 / 系统本地容错）
 function stopSpeechEngine() {
   try {
     audioPlayer.pause();
@@ -624,15 +617,46 @@ function stopSpeechEngine() {
   }
 }
 
-function speakViaSystemTts(text, isChinese, rate) {
+function playAudioBlobUrl(blobUrl, playbackRate = 1.0) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => finish(), 16000);
+
+    function finish() {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      audioPlayer.onended = null;
+      audioPlayer.onerror = null;
+      resolve();
+    }
+
+    audioPlayer.onended = finish;
+    audioPlayer.onerror = () => {
+      clearTimeout(timer);
+      reject(new Error("音频解码播放失败"));
+    };
+
+    audioPlayer.src = blobUrl;
+    audioPlayer.preservesPitch = true;
+    audioPlayer.playbackRate = playbackRate;
+    audioPlayer.play().catch(err => {
+      clearTimeout(timer);
+      reject(err);
+    });
+  });
+}
+
+function speakViaSystemTts(text, langType, rate) {
   return new Promise(resolve => {
     if (!("speechSynthesis" in window)) return resolve();
     let settled = false;
     const utter = new SpeechSynthesisUtterance(text);
     utter.rate = rate;
-    utter.lang = isChinese ? "zh-CN" : (/[\u3040-\u30ff]/.test(text) ? "ja-JP" : "en-US");
+    utter.lang = langType === "zh" ? "zh-CN" : (langType === "ja" ? "ja-JP" : "en-US");
 
-    const selectedVal = isChinese ? el("zhVoiceSelect").value : el("foreignVoiceSelect").value;
+    const selMap = { zh: el("zhVoiceSelect").value, ja: el("jaVoiceSelect").value, en: el("enVoiceSelect").value };
+    const selectedVal = selMap[langType] || "";
     if (selectedVal.startsWith("sys:")) {
       const uri = selectedVal.slice(4);
       const v = state.sysVoices.find(item => item.voiceURI === uri);
@@ -654,79 +678,101 @@ function speakViaSystemTts(text, isChinese, rate) {
   });
 }
 
-async function speakText(text, isChinese = false) {
+// langType: 'en' | 'ja' | 'zh'
+async function speakText(text, langType = "en") {
   const cleanText = String(text || "").trim();
   if (!cleanText) return;
 
   const rate = parseFloat(el("speechRate").value) || 0.9;
-  const selectedVal = isChinese ? el("zhVoiceSelect").value : el("foreignVoiceSelect").value;
+  const voiceMap = {
+    en: el("enVoiceSelect").value,
+    ja: el("jaVoiceSelect").value,
+    zh: el("zhVoiceSelect").value
+  };
+  const defaultMap = {
+    en: "edge:en-US-JennyNeural",
+    ja: "edge:ja-JP-NanamiNeural",
+    zh: "edge:zh-CN-XiaoxiaoNeural"
+  };
 
-  // 若用户主动选择了本地系统引擎，直接走系统发音
+  const selectedVal = voiceMap[langType] || defaultMap[langType];
+
+  // 分支 A：主动选择本地系统引擎
   if (selectedVal.startsWith("sys:")) {
-    return speakViaSystemTts(cleanText, isChinese, rate);
+    setTtsStatus(`当前音源：浏览器本地系统 (${langType.toUpperCase()})`);
+    return speakViaSystemTts(cleanText, langType, rate);
   }
 
-  // 解析微软云端发音人（检测到日语假名且当前为英语人声时自动切换日语七海人声）
-  let voiceName = selectedVal.startsWith("edge:")
-    ? selectedVal.slice(5)
-    : (isChinese ? "zh-CN-XiaoxiaoNeural" : "en-US-JennyNeural");
-
-  if (!isChinese && /[\u3040-\u30ff]/.test(cleanText) && !voiceName.startsWith("ja-JP")) {
-    voiceName = "ja-JP-NanamiNeural";
+  // 分支 B：Google 网页在线 TTS (/api/gtts)
+  if (selectedVal.startsWith("gtts:")) {
+    const gLang = selectedVal.slice(5);
+    const cacheKey = `gtts|${gLang}|${cleanText}`;
+    try {
+      let blobUrl = ttsBlobCache.get(cacheKey);
+      if (!blobUrl) {
+        const res = await fetch(`/api/gtts?lang=${encodeURIComponent(gLang)}&text=${encodeURIComponent(cleanText)}`);
+        if (!res.ok) throw new Error(`Google 网页接口异常 (${res.status})`);
+        blobUrl = URL.createObjectURL(await res.blob());
+        ttsBlobCache.set(cacheKey, blobUrl);
+      }
+      setTtsStatus(`当前音源：Google 网页在线 (${gLang})`);
+      await playAudioBlobUrl(blobUrl, rate);
+      return;
+    } catch (err) {
+      setTtsStatus(`Google 网页暂不可用(${err.message})，已切回本地发音`);
+      return speakViaSystemTts(cleanText, langType, rate);
+    }
   }
 
-  const cacheKey = `${voiceName}|${rate.toFixed(1)}|${cleanText}`;
-
+  // 分支 C：微软云端 Neural TTS (/api/tts)
+  const edgeVoice = selectedVal.startsWith("edge:") ? selectedVal.slice(5) : defaultMap[langType].slice(5);
+  const cacheKey = `edge|${edgeVoice}|${rate.toFixed(1)}|${cleanText}`;
   try {
     let blobUrl = ttsBlobCache.get(cacheKey);
     if (!blobUrl) {
-      const apiUrl = `/api/tts?voice=${encodeURIComponent(voiceName)}&rate=${rate.toFixed(1)}&text=${encodeURIComponent(cleanText)}`;
+      const apiUrl = `/api/tts?voice=${encodeURIComponent(edgeVoice)}&rate=${rate.toFixed(1)}&text=${encodeURIComponent(cleanText)}`;
       const res = await fetch(apiUrl);
-      if (!res.ok) throw new Error("Edge TTS 接口返回异常");
-      const blob = await res.blob();
-      blobUrl = URL.createObjectURL(blob);
+      if (!res.ok) {
+        let errMsg = `${res.status}`;
+        try { const j = await res.json(); errMsg = j.error || errMsg; } catch (_) {}
+        throw new Error(errMsg);
+      }
+      blobUrl = URL.createObjectURL(await res.blob());
       ttsBlobCache.set(cacheKey, blobUrl);
     }
-
-    await new Promise((resolve, reject) => {
-      let settled = false;
-      const timer = setTimeout(() => finish(), 15000);
-
-      function finish() {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        audioPlayer.onended = null;
-        audioPlayer.onerror = null;
-        resolve();
-      }
-
-      audioPlayer.onended = finish;
-      audioPlayer.onerror = () => {
-        clearTimeout(timer);
-        reject(new Error("音频播放失败"));
-      };
-      audioPlayer.src = blobUrl;
-      audioPlayer.play().catch(err => {
-        clearTimeout(timer);
-        reject(err);
-      });
-    });
-  } catch (_) {
-    // 断网或云端波动时自动降级到本地发音，保证背诵不中断
-    await speakViaSystemTts(cleanText, isChinese, rate);
+    setTtsStatus(`当前音源：微软云端 (${edgeVoice})`);
+    await playAudioBlobUrl(blobUrl, 1.0);
+  } catch (err) {
+    // 若微软波动，自动尝试 Google 网页在线，再回退本地
+    setTtsStatus(`微软接口异常(${err.message})，自动尝试 Google 网页在线...`);
+    const gFallbackLang = langType === "zh" ? "zh-CN" : (langType === "ja" ? "ja" : "en-US");
+    try {
+      const res = await fetch(`/api/gtts?lang=${gFallbackLang}&text=${encodeURIComponent(cleanText)}`);
+      if (!res.ok) throw new Error("Google 网页备用失败");
+      const url = URL.createObjectURL(await res.blob());
+      setTtsStatus(`当前音源：Google 网页在线 (${gFallbackLang})`);
+      await playAudioBlobUrl(url, rate);
+    } catch (_) {
+      setTtsStatus(`云端暂不可用，已回退本地系统发音`);
+      await speakViaSystemTts(cleanText, langType, rate);
+    }
   }
+}
+
+// 自动识别外文是日语还是英语，调用各自独立的发音人
+function detectForeignLang(text) {
+  return /[\u3040-\u30ff]/.test(String(text || "")) ? "ja" : "en";
 }
 
 async function speakForeignSequence(item, token) {
   if (!item || token !== state.playToken) return;
-  await speakText(item.word, false);
+  await speakText(item.word, detectForeignLang(item.word));
   if (token !== state.playToken) return;
 
   if (el("readPhrasesChk").checked && item.phrases.length > 0) {
     for (const p of item.phrases) {
       if (token !== state.playToken) return;
-      if (p.foreign) await speakText(p.foreign, false);
+      if (p.foreign) await speakText(p.foreign, detectForeignLang(p.foreign));
     }
   }
 }
@@ -736,14 +782,14 @@ async function speakChineseSequence(item, token) {
 
   if (item.meaning) {
     const cleanMeaning = item.meaning.replace(/\b(n|v|vt|vi|adj|adv|prep|conj|pron|num|art|int)\.\s*/gi, "");
-    await speakText(cleanMeaning, true);
+    await speakText(cleanMeaning, "zh");
   }
   if (token !== state.playToken) return;
 
   if (el("readPhrasesChk").checked && item.phrases.length > 0) {
     for (const p of item.phrases) {
       if (token !== state.playToken) return;
-      if (p.zh) await speakText(p.zh, true);
+      if (p.zh) await speakText(p.zh, "zh");
     }
   }
 }
@@ -753,7 +799,6 @@ const waitMs = ms => new Promise(r => setTimeout(r, Math.max(0, ms)));
 async function startAutoPlay() {
   if (state.filteredItems.length === 0) return;
 
-  // 解锁移动端音频播放器上下文
   try { audioPlayer.load(); } catch (_) {}
   stopSpeechEngine();
   await waitMs(40);
@@ -804,7 +849,7 @@ async function triggerSingleSpeak() {
   if (token === state.playToken) await speakChineseSequence(item, token);
 }
 
-// 8. 屏幕常亮、定时、纯净全屏与横竖屏
+// 7. 屏幕常亮、定时、纯净全屏与横竖屏
 async function requestWakeLock() {
   try {
     if ("wakeLock" in navigator && !state.wakeLock) {
@@ -852,7 +897,7 @@ async function toggleOrientation() {
   el("app").classList.toggle("css-landscape", state.isCssLandscape);
 }
 
-// 9. 设置持久化与事件绑定
+// 8. 设置持久化与事件绑定
 function savePrefs() {
   localStorage.setItem(STORAGE_PREFS, JSON.stringify({
     theme: document.body.dataset.theme,
@@ -861,7 +906,8 @@ function savePrefs() {
     speechRate: el("speechRate").value,
     readZh: el("readZhChk").checked,
     readPhrases: el("readPhrasesChk").checked,
-    foreignVoiceURI: el("foreignVoiceSelect").value,
+    enVoiceURI: el("enVoiceSelect").value,
+    jaVoiceURI: el("jaVoiceSelect").value,
     zhVoiceURI: el("zhVoiceSelect").value,
     ghOwner: el("ghOwnerInput").value,
     ghRepo: el("ghRepoInput").value,
@@ -913,7 +959,22 @@ function bindEvents() {
     dlg.addEventListener("click", e => { if (e.target === dlg) dlg.close(); });
   });
 
-  // 样本一键复制与填入
+  // 一键试听三语设置效果
+  el("testVoiceBtn").addEventListener("click", async () => {
+    const btn = el("testVoiceBtn");
+    btn.disabled = true;
+    btn.textContent = "试听中...";
+    try {
+      stopAutoPlay();
+      await speakText("Serendipity", "en");
+      await speakText("おやすみなさい", "ja");
+      await speakText("云端人声测试成功", "zh");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "试听三语";
+    }
+  });
+
   el("copySampleBtn").addEventListener("click", async () => {
     const sampleText = el("sampleTemplateBox").textContent.trim();
     try {
@@ -922,7 +983,6 @@ function bindEvents() {
       setTimeout(() => { el("copySampleBtn").textContent = "复制格式样本"; }, 2000);
     } catch (_) {
       el("importTextArea").value = sampleText;
-      alert("当前环境不支持直接写入剪贴板，已直接为你填入下方输入框");
     }
   });
 
@@ -1079,7 +1139,8 @@ function bindEvents() {
   el("ghOwnerInput").addEventListener("input", savePrefs);
   el("ghRepoInput").addEventListener("input", savePrefs);
   el("ghTokenInput").addEventListener("input", savePrefs);
-  el("foreignVoiceSelect").addEventListener("change", savePrefs);
+  el("enVoiceSelect").addEventListener("change", savePrefs);
+  el("jaVoiceSelect").addEventListener("change", savePrefs);
   el("zhVoiceSelect").addEventListener("change", savePrefs);
 
   document.querySelectorAll(".theme-btn").forEach(btn => {
