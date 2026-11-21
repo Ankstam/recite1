@@ -7,23 +7,65 @@ function escapeXml(str) {
     .replace(/'/g, "&apos;");
 }
 
-// 合成微软 Edge Neural TTS 音频流（返回 MP3）
+// 生成微软 Edge TTS 必需的 Sec-MS-GEC 动态校验哈希
+async function generateSecMsGec(trustedToken) {
+  const WIN_EPOCH = 11644473600n;
+  const S_TO_NS = 10000000n;
+  const nowSec = BigInt(Math.floor(Date.now() / 1000));
+  let ticks = nowSec + WIN_EPOCH;
+  ticks = ticks - (ticks % 300n);
+  ticks = ticks * S_TO_NS;
+
+  const strToHash = `${ticks.toString()}${trustedToken}`;
+  const hashBuf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(strToHash));
+  return Array.from(new Uint8Array(hashBuf))
+    .map(b => b.toString(16).padStart(2, "0"))
+    .join("")
+    .toUpperCase();
+}
+
+function generateMuid() {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join("").toUpperCase();
+}
+
+// 1. 微软 Edge Neural 云端语音合成
 async function synthesizeEdgeTts(text, voice = "en-US-JennyNeural", rateNum = 1.0) {
   const token = "6A5AA1D4EAFF4E9FB37E23D68491D6F4";
+  const secMsGec = await generateSecMsGec(token);
+  const gecVersion = "1-143.0.3650.75";
   const connId = crypto.randomUUID().replace(/-/g, "");
-  const endpoint = `https://api.msedgeservices.com/tts/cognitiveservices/websocket/v1?Ocp-Apim-Subscription-Key=${token}&ConnectionId=${connId}`;
+  const muid = generateMuid();
 
-  const upgradeRes = await fetch(endpoint, {
-    headers: {
-      "Upgrade": "websocket",
-      "Origin": "chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold",
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0"
-    }
-  });
+  const endpoints = [
+    `https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=${token}&Sec-MS-GEC=${secMsGec}&Sec-MS-GEC-Version=${gecVersion}&ConnectionId=${connId}`,
+    `https://api.msedgeservices.com/tts/cognitiveservices/websocket/v1?Ocp-Apim-Subscription-Key=${token}&Sec-MS-GEC=${secMsGec}&Sec-MS-GEC-Version=${gecVersion}&ConnectionId=${connId}`
+  ];
 
-  const ws = upgradeRes.webSocket;
+  let ws = null;
+  let lastStatus = 0;
+
+  for (const ep of endpoints) {
+    try {
+      const upgradeRes = await fetch(ep, {
+        headers: {
+          "Upgrade": "websocket",
+          "Origin": "chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold",
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0",
+          "Cookie": `MUID=${muid};`
+        }
+      });
+      lastStatus = upgradeRes.status;
+      if (upgradeRes.webSocket) {
+        ws = upgradeRes.webSocket;
+        break;
+      }
+    } catch (_) {}
+  }
+
   if (!ws) {
-    throw new Error(`TTS WebSocket 握手失败 (${upgradeRes.status})`);
+    throw new Error(`微软TTS握手被拒 (${lastStatus})`);
   }
 
   ws.accept();
@@ -69,7 +111,7 @@ async function synthesizeEdgeTts(text, voice = "en-US-JennyNeural", rateNum = 1.
   await new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       try { ws.close(); } catch (_) {}
-      reject(new Error("TTS 合成超时"));
+      reject(new Error("微软TTS合成超时"));
     }, 12000);
 
     ws.addEventListener("message", event => {
@@ -95,7 +137,7 @@ async function synthesizeEdgeTts(text, voice = "en-US-JennyNeural", rateNum = 1.
 
     ws.addEventListener("error", () => {
       clearTimeout(timer);
-      reject(new Error("TTS 连接中断"));
+      reject(new Error("微软TTS连接异常"));
     });
 
     ws.addEventListener("close", () => {
@@ -108,7 +150,7 @@ async function synthesizeEdgeTts(text, voice = "en-US-JennyNeural", rateNum = 1.
   });
 
   if (chunks.length === 0) {
-    throw new Error("未收到音频数据");
+    throw new Error("微软TTS未返回音频数据");
   }
 
   const totalLen = chunks.reduce((acc, c) => acc + c.byteLength, 0);
@@ -119,6 +161,66 @@ async function synthesizeEdgeTts(text, voice = "en-US-JennyNeural", rateNum = 1.
     offset += c.byteLength;
   }
   return merged;
+}
+
+// 2. Google 网页在线语音合成（支持长句自动分段拼接 MP3）
+function splitTextForGoogle(text, maxLen = 160) {
+  if (text.length <= maxLen) return [text];
+  const parts = [];
+  let rest = text;
+  while (rest.length > 0) {
+    if (rest.length <= maxLen) {
+      parts.push(rest);
+      break;
+    }
+    let cut = rest.lastIndexOf(" ", maxLen);
+    if (cut <= 0) cut = maxLen;
+    parts.push(rest.slice(0, cut).trim());
+    rest = rest.slice(cut).trim();
+  }
+  return parts.filter(Boolean);
+}
+
+async function synthesizeGoogleWebTts(text, lang = "en-US") {
+  const segments = splitTextForGoogle(text, 160);
+  const buffers = [];
+
+  for (const seg of segments) {
+    const urls = [
+      `https://translate.googleapis.com/translate_tts?ie=UTF-8&client=gtx&tl=${encodeURIComponent(lang)}&q=${encodeURIComponent(seg)}`,
+      `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=${encodeURIComponent(lang)}&q=${encodeURIComponent(seg)}`
+    ];
+
+    let fetched = null;
+    for (const u of urls) {
+      try {
+        const res = await fetch(u, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
+            "Referer": "https://translate.google.com/"
+          }
+        });
+        if (res.ok) {
+          fetched = new Uint8Array(await res.arrayBuffer());
+          break;
+        }
+      } catch (_) {}
+    }
+
+    if (!fetched || fetched.byteLength === 0) {
+      throw new Error("Google 网页音源请求失败");
+    }
+    buffers.push(fetched);
+  }
+
+  const total = buffers.reduce((s, b) => s + b.byteLength, 0);
+  const out = new Uint8Array(total);
+  let pos = 0;
+  for (const b of buffers) {
+    out.set(b, pos);
+    pos += b.byteLength;
+  }
+  return out;
 }
 
 export default {
@@ -134,12 +236,14 @@ export default {
       return new Response(null, { headers: cors });
     }
 
-    // 1. 获取微软 Edge TTS 全部可用发音人列表
+    // 获取微软全部可用发音人列表
     if (url.pathname === "/api/voices") {
       const token = "6A5AA1D4EAFF4E9FB37E23D68491D6F4";
+      const secMsGec = await generateSecMsGec(token);
+      const gecVersion = "1-143.0.3650.75";
       const endpoints = [
-        `https://api.msedgeservices.com/tts/cognitiveservices/voices/list?Ocp-Apim-Subscription-Key=${token}`,
-        `https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/voices/list?TrustedClientToken=${token}`
+        `https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/voices/list?TrustedClientToken=${token}&Sec-MS-GEC=${secMsGec}&Sec-MS-GEC-Version=${gecVersion}`,
+        `https://api.msedgeservices.com/tts/cognitiveservices/voices/list?Ocp-Apim-Subscription-Key=${token}&Sec-MS-GEC=${secMsGec}&Sec-MS-GEC-Version=${gecVersion}`
       ];
       for (const ep of endpoints) {
         try {
@@ -162,24 +266,36 @@ export default {
       });
     }
 
-    // 2. 微软 Edge TTS 音频合成接口
+    // 微软云端 TTS 接口
     if (url.pathname === "/api/tts") {
       const text = (url.searchParams.get("text") || "").trim();
       const voice = (url.searchParams.get("voice") || "en-US-JennyNeural").trim();
       const rate = parseFloat(url.searchParams.get("rate") || "1.0");
-
-      if (!text) {
-        return new Response("Missing text", { status: 400, headers: cors });
-      }
+      if (!text) return new Response("Missing text", { status: 400, headers: cors });
 
       try {
         const audioBytes = await synthesizeEdgeTts(text, voice, rate);
         return new Response(audioBytes, {
-          headers: {
-            ...cors,
-            "Content-Type": "audio/mpeg",
-            "Cache-Control": "public, max-age=86400"
-          }
+          headers: { ...cors, "Content-Type": "audio/mpeg", "Cache-Control": "public, max-age=86400" }
+        });
+      } catch (err) {
+        return new Response(JSON.stringify({ error: err.message }), {
+          status: 502,
+          headers: { ...cors, "Content-Type": "application/json;charset=UTF-8" }
+        });
+      }
+    }
+
+    // Google 网页在线 TTS 接口
+    if (url.pathname === "/api/gtts") {
+      const text = (url.searchParams.get("text") || "").trim();
+      const lang = (url.searchParams.get("lang") || "en-US").trim();
+      if (!text) return new Response("Missing text", { status: 400, headers: cors });
+
+      try {
+        const audioBytes = await synthesizeGoogleWebTts(text, lang);
+        return new Response(audioBytes, {
+          headers: { ...cors, "Content-Type": "audio/mpeg", "Cache-Control": "public, max-age=86400" }
         });
       } catch (err) {
         return new Response(JSON.stringify({ error: err.message }), {
