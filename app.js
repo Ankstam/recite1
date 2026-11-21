@@ -1,9 +1,11 @@
-// 【免粘贴配置】将你的 github_pat_ 密钥从中间拆成两半填在下面（拆开后不会被 GitHub 扫描作废，换设备也无需粘贴）
+// 【两半密钥配置】请务必按顺序：PART_1 放前半段，PART_2 放后半段
 const DEFAULT_TOKEN_PART_1 = "github_pat_11BCAIORQ0GNRGcrjy";
 const DEFAULT_TOKEN_PART_2 = "HZK7_YJFMnTZzArSwSPAKBzpJFn0wocIKKSTYeHQXFpVoYs0KQKHFO3R89MtBvXv";
 
 const STORAGE_LOCAL_BOOKS = "wf_local_books_v4";
-const STORAGE_PREFS = "wf_prefs_v6";
+const STORAGE_PREFS = "wf_prefs_v7";
+const STORAGE_FAVORITES = "wf_favorites_v1";
+const STORAGE_CUSTOM_FOLDERS = "wf_custom_folders_v1";
 
 const audioPlayer = new Audio();
 const ttsBlobCache = new Map();
@@ -54,10 +56,14 @@ const state = {
   wakeLock: null,
   sleepTimeout: null,
   hudTimeout: null,
+  toastTimeout: null,
   sysVoices: [],
   editingItems: [],
-  tokenHalf1: "",
-  tokenHalf2: ""
+  favorites: [],
+  favAddedInFullscreen: 0,
+  lastTapTime: 0,
+  lastTapX: 0,
+  lastTapY: 0
 };
 
 const el = id => document.getElementById(id);
@@ -67,6 +73,7 @@ function setTtsStatus(msg) {
   if (box) box.textContent = msg;
 }
 
+// 严格按 [前半段 + 后半段] 顺序拼接内置密钥
 function getBuiltInToken() {
   return `${DEFAULT_TOKEN_PART_1}${DEFAULT_TOKEN_PART_2}`.trim();
 }
@@ -82,13 +89,11 @@ function updateTokenStatus() {
   const builtInVal = getBuiltInToken();
 
   if (inputVal) {
-    box.textContent = `密钥状态：已配置浏览器密钥（共 ${inputVal.length} 位）`;
+    box.textContent = `密钥状态：已填补完整密钥（共 ${inputVal.length} 位）`;
   } else if (builtInVal) {
-    box.textContent = `密钥状态：已启用代码内两半自动拼接密钥（共 ${builtInVal.length} 位）`;
-  } else if (state.tokenHalf1 || state.tokenHalf2) {
-    box.textContent = `分段暂存：前半段 ${state.tokenHalf1 ? "✓ 已粘贴" : "待粘贴"} ｜ 后半段 ${state.tokenHalf2 ? "✓ 已粘贴" : "待粘贴"}`;
+    box.textContent = `密钥状态：已就绪（代码内两半自动拼接，共 ${builtInVal.length} 位）`;
   } else {
-    box.textContent = "密钥状态：未配置（点击上方两半按钮分段粘贴或写入代码）";
+    box.textContent = "密钥状态：未配置（点击「一键导入密钥」自动填补）";
   }
 }
 
@@ -118,7 +123,7 @@ function getRepoConfig() {
 function getGhHeaders(requireToken = false) {
   const { token } = getRepoConfig();
   if (requireToken && !token) {
-    throw new Error("请先点击左上角「齿轮设置」，粘贴完整密钥或分段粘贴前后两半密钥");
+    throw new Error("请先点击左上角「齿轮设置」，使用「一键导入密钥」填补密钥");
   }
   return {
     Accept: "application/vnd.github+json",
@@ -128,6 +133,7 @@ function getGhHeaders(requireToken = false) {
 
 // 1. 初始化
 async function init() {
+  state.favorites = loadFavorites();
   await initVoices();
   restorePrefs();
   updateTokenStatus();
@@ -213,38 +219,61 @@ async function initVoices() {
       refreshAll(cloudList, state.sysVoices);
     };
   }
-  renderVoiceSelectsWrapper(cloudList, state.sysVoices, refreshAll);
+  refreshAll(cloudList, state.sysVoices);
 }
 
-function renderVoiceSelectsWrapper(cloudList, sysVoices, fn) {
-  fn(cloudList, sysVoices);
+// 3. GitHub 多文件夹扫描与词库管理
+function getMonitoredFolders() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORAGE_CUSTOM_FOLDERS) || "[]");
+    return [...new Set(["books", "books/favorites", ...saved])];
+  } catch {
+    return ["books", "books/favorites"];
+  }
 }
 
-// 3. GitHub 直连词库管理
+function registerCustomFolder(folderPath) {
+  const clean = folderPath.replace(/^\/+|\/+$/g, "");
+  if (!clean) return;
+  const list = getMonitoredFolders();
+  if (!list.includes(clean)) {
+    list.push(clean);
+    localStorage.setItem(STORAGE_CUSTOM_FOLDERS, JSON.stringify(list));
+  }
+}
+
 async function reloadAllBooks(preferBookId = "") {
   const localBooks = getLocalBooks();
   let repoBooks = [];
   const { owner, repo, branch } = getRepoConfig();
+  const folders = getMonitoredFolders();
 
-  try {
-    const api = `https://api.github.com/repos/${owner}/${repo}/contents/books?ref=${branch}`;
-    const res = await fetch(api, { cache: "no-store", headers: getGhHeaders(false) });
-    if (res.ok) {
-      const list = await res.json();
-      if (Array.isArray(list)) {
-        repoBooks = list
-          .filter(f => f.name.endsWith(".json"))
-          .map(f => ({
-            id: `repo:${f.name}`,
-            rawName: f.name.replace(/\.json$/i, ""),
-            name: `[云端] ${f.name.replace(/\.json$/i, "")}`,
-            source: "repo",
-            file: f.name,
-            items: null
-          }));
+  for (const folder of folders) {
+    try {
+      const api = `https://api.github.com/repos/${owner}/${repo}/contents/${folder}?ref=${branch}`;
+      const res = await fetch(api, { cache: "no-store", headers: getGhHeaders(false) });
+      if (res.ok) {
+        const list = await res.json();
+        if (Array.isArray(list)) {
+          list
+            .filter(f => f.type === "file" && f.name.endsWith(".json"))
+            .forEach(f => {
+              const fullPath = `${folder}/${f.name}`;
+              const baseTitle = f.name.replace(/\.json$/i, "");
+              const folderTag = folder === "books" ? "" : ` (${folder})`;
+              repoBooks.push({
+                id: `repo:${fullPath}`,
+                rawName: baseTitle,
+                name: `[云端] ${baseTitle}${folderTag}`,
+                source: "repo",
+                path: fullPath,
+                items: null
+              });
+            });
+        }
       }
-    }
-  } catch (_) {}
+    } catch (_) {}
+  }
 
   state.books = [...repoBooks, ...localBooks];
   renderBookOptions();
@@ -277,11 +306,19 @@ function sanitizeFileName(name) {
   return clean.endsWith(".json") ? clean : `${clean}.json`;
 }
 
-async function saveBookToGitHub(bookName, items, existingFileName = "") {
+async function saveBookToGitHub(bookName, items, existingFullPath = "", targetFolder = "books") {
   const { owner, repo, branch } = getRepoConfig();
   const headers = getGhHeaders(true);
-  const fileName = existingFileName || sanitizeFileName(bookName);
-  const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/books/${encodeURIComponent(fileName)}`;
+
+  let fullPath = existingFullPath;
+  if (!fullPath) {
+    const cleanFolder = (targetFolder || "books").replace(/^\/+|\/+$/g, "") || "books";
+    registerCustomFolder(cleanFolder);
+    fullPath = `${cleanFolder}/${sanitizeFileName(bookName)}`;
+  }
+
+  const encodedPath = fullPath.split("/").map(encodeURIComponent).join("/");
+  const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${encodedPath}`;
 
   let existingSha = null;
   const checkRes = await fetch(`${apiUrl}?ref=${branch}`, { cache: "no-store", headers });
@@ -306,7 +343,7 @@ async function saveBookToGitHub(bookName, items, existingFileName = "") {
     method: "PUT",
     headers: { ...headers, "Content-Type": "application/json" },
     body: JSON.stringify({
-      message: `${existingSha ? "Update" : "Create"} vocab book: ${fileName}`,
+      message: `${existingSha ? "Update" : "Create"} vocab book: ${fullPath}`,
       content: utf8ToBase64(JSON.stringify(payload, null, 2)),
       branch,
       ...(existingSha ? { sha: existingSha } : {})
@@ -315,13 +352,14 @@ async function saveBookToGitHub(bookName, items, existingFileName = "") {
 
   const data = await putRes.json();
   if (!putRes.ok) throw new Error(`GitHub 保存失败：${data.message || putRes.status}`);
-  return `repo:${fileName}`;
+  return `repo:${fullPath}`;
 }
 
-async function deleteBookFromGitHub(fileName) {
+async function deleteBookFromGitHub(fullPath) {
   const { owner, repo, branch } = getRepoConfig();
   const headers = getGhHeaders(true);
-  const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/books/${encodeURIComponent(fileName)}`;
+  const encodedPath = fullPath.split("/").map(encodeURIComponent).join("/");
+  const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${encodedPath}`;
 
   const checkRes = await fetch(`${apiUrl}?ref=${branch}`, { cache: "no-store", headers });
   if (!checkRes.ok) return;
@@ -330,12 +368,12 @@ async function deleteBookFromGitHub(fileName) {
   const delRes = await fetch(apiUrl, {
     method: "DELETE",
     headers: { ...headers, "Content-Type": "application/json" },
-    body: JSON.stringify({ message: `Delete vocab book: ${fileName}`, sha: meta.sha, branch })
+    body: JSON.stringify({ message: `Delete vocab book: ${fullPath}`, sha: meta.sha, branch })
   });
 
   if (!delRes.ok) {
     const err = await delRes.json();
-    throw new Error(`删除 ${fileName} 失败：${err.message || delRes.status}`);
+    throw new Error(`删除 ${fullPath} 失败：${err.message || delRes.status}`);
   }
 }
 
@@ -376,7 +414,7 @@ function renderBookManageList() {
     chk.addEventListener("change", updateBatchDeleteBtnCount);
 
     const title = document.createElement("span");
-    title.textContent = b.rawName || b.name.replace(/^\[(云端|本地)\]\s*/, "");
+    title.textContent = b.name.replace(/^\[(云端|本地)\]\s*/, "");
 
     const badge = document.createElement("span");
     badge.className = b.source === "repo" ? "tag-cloud" : "tag-local";
@@ -403,7 +441,8 @@ async function selectBook(bookId) {
   if (book.source === "repo" && !book.items) {
     el("cardWord").textContent = "加载中...";
     const { owner, repo, branch } = getRepoConfig();
-    const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/books/${encodeURIComponent(book.file)}?ref=${branch}`;
+    const encodedPath = book.path.split("/").map(encodeURIComponent).join("/");
+    const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${encodedPath}?ref=${branch}`;
     const res = await fetch(apiUrl, { cache: "no-store", headers: getGhHeaders(false) });
     const meta = await res.json();
     const data = JSON.parse(base64ToUtf8(meta.content || ""));
@@ -494,7 +533,135 @@ function parseImportedContent(rawText) {
     .filter(i => i.word);
 }
 
-// 4. 分类过滤与卡片渲染
+// 4. 收藏册逻辑（双击收藏 / 勾选背诵 / 存 GitHub 文件夹 / 导出）
+function loadFavorites() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_FAVORITES) || "[]"); } catch { return []; }
+}
+
+function saveFavorites() {
+  localStorage.setItem(STORAGE_FAVORITES, JSON.stringify(state.favorites));
+}
+
+function isWordFavorited(word) {
+  const key = String(word || "").trim().toLowerCase();
+  return state.favorites.some(f => f.word.trim().toLowerCase() === key);
+}
+
+function showFavToast(msg) {
+  const toast = el("favToast");
+  if (!toast) return;
+  toast.textContent = msg;
+  toast.classList.add("show");
+  clearTimeout(state.toastTimeout);
+  state.toastTimeout = setTimeout(() => toast.classList.remove("show"), 1400);
+}
+
+function toggleFavoriteCurrentWord() {
+  if (state.filteredItems.length === 0) return;
+  const item = state.filteredItems[state.index];
+  if (!item || !item.word) return;
+
+  const key = item.word.trim().toLowerCase();
+  const idx = state.favorites.findIndex(f => f.word.trim().toLowerCase() === key);
+
+  if (idx >= 0) {
+    state.favorites.splice(idx, 1);
+    saveFavorites();
+    showFavToast(`☆ 已取消收藏：${item.word}`);
+  } else {
+    state.favorites.unshift({
+      ...JSON.parse(JSON.stringify(item)),
+      savedAt: Date.now()
+    });
+    saveFavorites();
+    if (document.body.classList.contains("pure-fullscreen")) {
+      state.favAddedInFullscreen++;
+    }
+    showFavToast(`★ 已收藏：${item.word}`);
+  }
+
+  updateCardFavBadge();
+}
+
+function updateCardFavBadge() {
+  const badge = el("cardFavBadge");
+  if (!badge) return;
+  if (state.filteredItems.length === 0) {
+    badge.style.display = "none";
+    return;
+  }
+  const current = state.filteredItems[state.index];
+  badge.style.display = current && isWordFavorited(current.word) ? "inline-block" : "none";
+}
+
+function openFavoritesModal() {
+  el("favModalTitle").textContent = `生词收藏册 (${state.favorites.length})`;
+  if (!el("favFileNameInput").value) {
+    el("favFileNameInput").value = `favorites_${new Date().toISOString().slice(0, 10)}`;
+  }
+  renderFavoritesList();
+  el("favoritesDialog").showModal();
+}
+
+function renderFavoritesList() {
+  const container = el("favWordList");
+  container.innerHTML = "";
+  el("selectAllFavsChk").checked = state.favorites.length > 0;
+
+  if (state.favorites.length === 0) {
+    container.innerHTML = `<div style="padding:14px;font-size:12px;color:var(--subtext);text-align:center;">暂无收藏生词（背诵时双击页面任意空白处即可自动收藏）</div>`;
+    return;
+  }
+
+  state.favorites.forEach((item, idx) => {
+    const label = document.createElement("label");
+    label.className = "book-check-item";
+
+    const chk = document.createElement("input");
+    chk.type = "checkbox";
+    chk.value = String(idx);
+    chk.className = "fav-word-chk";
+    chk.checked = true;
+
+    const info = document.createElement("div");
+    info.className = "fav-item-main";
+
+    const wLine = document.createElement("span");
+    wLine.className = "fav-item-word";
+    wLine.textContent = `${item.word} ${item.phonetic || ""}`.trim();
+
+    const mLine = document.createElement("span");
+    mLine.className = "fav-item-sub";
+    mLine.textContent = item.meaning || "无释义";
+
+    info.append(wLine, mLine);
+
+    const badge = document.createElement("span");
+    badge.className = "tag-cloud";
+    badge.textContent = item.category || "默认";
+
+    label.append(chk, info, badge);
+    container.appendChild(label);
+  });
+}
+
+function getSelectedFavoriteIndices() {
+  return [...document.querySelectorAll(".fav-word-chk:checked")].map(c => parseInt(c.value, 10));
+}
+
+function downloadTextFile(filename, content, mime = "text/plain;charset=utf-8") {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// 5. 分类过滤与卡片渲染
 function buildCategoryFilter() {
   const cats = [...new Set(state.allItems.map(i => i.category))];
   const sel = el("categorySelect");
@@ -527,6 +694,7 @@ function renderCard(hideMeaning = false) {
     el("cardMeaning").textContent = "请切换分类或点击左上角导入词库";
     el("cardPhrases").innerHTML = "";
     el("progressText").textContent = "0 / 0";
+    updateCardFavBadge();
     return;
   }
 
@@ -556,13 +724,14 @@ function renderCard(hideMeaning = false) {
   });
 
   el("progressText").textContent = `${state.index + 1} / ${total}`;
+  updateCardFavBadge();
 }
 
 function revealMeaningNow() {
   el("vocabCard").classList.remove("hide-meaning");
 }
 
-// 5. 词库编辑器
+// 6. 词库编辑器
 function openBookEditor() {
   const book = state.books.find(b => b.id === state.currentBookId);
   if (!book) return alert("请先选择一本词库");
@@ -638,7 +807,7 @@ function renderEditorItems() {
   });
 }
 
-// 6. 三语独立云端发音引擎
+// 7. 三语独立云端发音引擎
 function stopSpeechEngine() {
   try {
     audioPlayer.pause();
@@ -876,7 +1045,7 @@ async function triggerSingleSpeak() {
   if (token === state.playToken) await speakChineseSequence(item, token);
 }
 
-// 7. 屏幕常亮、定时、纯净全屏与横竖屏
+// 8. 屏幕常亮、定时、纯净全屏与横竖屏
 async function requestWakeLock() {
   try {
     if ("wakeLock" in navigator && !state.wakeLock) {
@@ -899,6 +1068,7 @@ function setupSleepTimer() {
 }
 
 async function enterPureFullscreen() {
+  state.favAddedInFullscreen = 0;
   document.body.classList.add("pure-fullscreen");
   requestWakeLock();
   try {
@@ -910,6 +1080,12 @@ async function exitPureFullscreen() {
   document.body.classList.remove("pure-fullscreen");
   el("fsHud").classList.remove("visible");
   if (document.fullscreenElement) await document.exitFullscreen().catch(() => {});
+
+  // 若在全屏背诵过程中双击收藏了生词，退出全屏时自动展示收藏册页面
+  if (state.favAddedInFullscreen > 0) {
+    state.favAddedInFullscreen = 0;
+    openFavoritesModal();
+  }
 }
 
 async function toggleOrientation() {
@@ -924,7 +1100,7 @@ async function toggleOrientation() {
   el("app").classList.toggle("css-landscape", state.isCssLandscape);
 }
 
-// 8. 设置持久化与两半密钥拆分/合并逻辑
+// 9. 设置持久化与一键导入两半密钥
 function savePrefs() {
   localStorage.setItem(STORAGE_PREFS, JSON.stringify({
     theme: document.body.dataset.theme,
@@ -970,23 +1146,42 @@ function applyTheme(themeVal, persist = true) {
   if (persist) savePrefs();
 }
 
-async function readClipboardOrPrompt(label) {
-  try {
-    const text = await navigator.clipboard.readText();
-    if (text && text.trim()) return text.trim();
-  } catch (_) {}
-  return (prompt(`请在此粘贴${label}：`) || "").trim();
-}
-
-function tryCombineTokenHalves() {
-  if (state.tokenHalf1 && state.tokenHalf2) {
-    el("ghTokenInput").value = `${state.tokenHalf1}${state.tokenHalf2}`;
-    state.tokenHalf1 = "";
-    state.tokenHalf2 = "";
+// 一键导入两半密钥（严格保持：前半段 + 后半段 顺序）
+async function handleOneClickImportToken() {
+  const builtIn = getBuiltInToken();
+  if (builtIn) {
+    el("ghTokenInput").value = builtIn;
     savePrefs();
-    reloadAllBooks();
+    updateTokenStatus();
+    el("oneClickImportTokenBtn").textContent = "已填补 ✓";
+    setTimeout(() => { el("oneClickImportTokenBtn").textContent = "一键导入密钥"; }, 2000);
+    await reloadAllBooks();
+    return;
   }
+
+  let raw = "";
+  try {
+    raw = await navigator.clipboard.readText();
+  } catch (_) {}
+
+  if (!raw || !raw.trim()) {
+    raw = prompt("请粘贴两半密钥（前半段在第一行，后半段在第二行）：") || "";
+  }
+  if (!raw.trim()) return;
+
+  // 按换行或空白拆分为两段，严格按出现顺序 [0]前半段 + [1]后半段 拼接
+  const parts = raw
+    .split(/\r?\n|\s+/)
+    .map(s => s.trim())
+    .filter(Boolean);
+
+  const combined = parts.length >= 2 ? `${parts[0]}${parts[1]}` : parts[0];
+  el("ghTokenInput").value = combined;
+  savePrefs();
   updateTokenStatus();
+  el("oneClickImportTokenBtn").textContent = "已合并填补 ✓";
+  setTimeout(() => { el("oneClickImportTokenBtn").textContent = "一键导入密钥"; }, 2000);
+  await reloadAllBooks();
 }
 
 function bindEvents() {
@@ -999,60 +1194,140 @@ function bindEvents() {
     el("booksDialog").showModal();
   });
   el("openImportBtn").addEventListener("click", () => el("importDialog").showModal());
+  el("openFavoritesBtn").addEventListener("click", openFavoritesModal);
   el("fullscreenBtn").addEventListener("click", enterPureFullscreen);
 
   document.querySelectorAll("[data-close]").forEach(btn => {
     btn.addEventListener("click", () => el(btn.dataset.close).close());
   });
-  [el("settingsDialog"), el("booksDialog"), el("editorDialog"), el("importDialog")].forEach(dlg => {
+  [el("settingsDialog"), el("favoritesDialog"), el("booksDialog"), el("editorDialog"), el("importDialog")].forEach(dlg => {
     dlg.addEventListener("click", e => { if (e.target === dlg) dlg.close(); });
   });
 
-  // 密钥拆分复制 & 拼接粘贴按钮组
-  el("copyTokenPart1Btn").addEventListener("click", async () => {
-    const t = getActiveToken();
-    if (!t) return alert("当前还没有可用的密钥，请先粘贴密钥");
-    const half1 = t.slice(0, Math.ceil(t.length / 2));
-    try {
-      await navigator.clipboard.writeText(half1);
-      el("copyTokenPart1Btn").textContent = "已复制前半段 ✓";
-      setTimeout(() => { el("copyTokenPart1Btn").textContent = "复制前半段"; }, 2000);
-    } catch (_) {
-      prompt("请长按复制前半段密钥：", half1);
+  // 一键导入两半密钥
+  el("oneClickImportTokenBtn").addEventListener("click", handleOneClickImportToken);
+
+  // 页面与全屏下双击任意按钮以外区域自动收藏当前单词
+  el("app").addEventListener("click", e => {
+    if (e.target.closest("button, select, input, textarea, label, dialog, .fs-hud")) return;
+
+    const now = Date.now();
+    const dt = now - state.lastTapTime;
+    const dx = Math.abs(e.clientX - state.lastTapX);
+    const dy = Math.abs(e.clientY - state.lastTapY);
+
+    state.lastTapTime = now;
+    state.lastTapX = e.clientX;
+    state.lastTapY = e.clientY;
+
+    if (dt > 0 && dt < 320 && dx < 45 && dy < 45) {
+      state.lastTapTime = 0;
+      toggleFavoriteCurrentWord();
     }
   });
 
-  el("copyTokenPart2Btn").addEventListener("click", async () => {
-    const t = getActiveToken();
-    if (!t) return alert("当前还没有可用的密钥，请先粘贴密钥");
-    const half2 = t.slice(Math.ceil(t.length / 2));
+  // 收藏册弹窗交互
+  el("selectAllFavsChk").addEventListener("change", e => {
+    document.querySelectorAll(".fav-word-chk").forEach(c => { c.checked = e.target.checked; });
+  });
+
+  el("studySelectedFavsBtn").addEventListener("click", () => {
+    const idxs = getSelectedFavoriteIndices();
+    if (idxs.length === 0) return alert("请先勾选要背诵的收藏单词");
+    stopAutoPlay();
+    state.allItems = idxs.map(i => state.favorites[i]).filter(Boolean);
+    buildCategoryFilter();
+    applyCategoryFilter("ALL");
+    el("favoritesDialog").close();
+  });
+
+  el("removeSelectedFavsBtn").addEventListener("click", () => {
+    const idxSet = new Set(getSelectedFavoriteIndices());
+    if (idxSet.size === 0) return alert("请先勾选要移出的单词");
+    state.favorites = state.favorites.filter((_, i) => !idxSet.has(i));
+    saveFavorites();
+    el("favModalTitle").textContent = `生词收藏册 (${state.favorites.length})`;
+    renderFavoritesList();
+    updateCardFavBadge();
+  });
+
+  el("saveFavsToCloudBtn").addEventListener("click", async () => {
+    const idxs = getSelectedFavoriteIndices();
+    if (idxs.length === 0) return alert("请先勾选要保存的收藏单词");
+
+    const folder = el("favFolderInput").value.trim() || "books/favorites";
+    const fileName = el("favFileNameInput").value.trim() || `favorites_${new Date().toISOString().slice(0, 10)}`;
+    const customCat = el("favCustomCategoryInput").value.trim();
+
+    const itemsToSave = idxs.map(i => {
+      const copy = JSON.parse(JSON.stringify(state.favorites[i]));
+      if (customCat) copy.category = customCat;
+      return copy;
+    });
+
+    const btn = el("saveFavsToCloudBtn");
+    btn.disabled = true;
+    btn.textContent = "保存中...";
+
     try {
-      await navigator.clipboard.writeText(half2);
-      el("copyTokenPart2Btn").textContent = "已复制后半段 ✓";
-      setTimeout(() => { el("copyTokenPart2Btn").textContent = "复制后半段"; }, 2000);
-    } catch (_) {
-      prompt("请长按复制后半段密钥：", half2);
+      const newRepoId = await saveBookToGitHub(fileName, itemsToSave, "", folder);
+      el("favoritesDialog").close();
+      await reloadAllBooks(newRepoId);
+      alert(`已成功保存 ${itemsToSave.length} 个收藏单词至 GitHub：${folder}/`);
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "保存至 GitHub";
     }
   });
 
-  el("pasteTokenPart1Btn").addEventListener("click", async () => {
-    const text = await readClipboardOrPrompt("前半段密钥");
-    if (!text) return;
-    state.tokenHalf1 = text;
-    el("pasteTokenPart1Btn").textContent = "前半段已粘贴 ✓";
-    setTimeout(() => { el("pasteTokenPart1Btn").textContent = "粘贴前半段"; }, 2000);
-    tryCombineTokenHalves();
+  el("exportFavTxtBtn").addEventListener("click", () => {
+    const idxs = getSelectedFavoriteIndices();
+    if (idxs.length === 0) return alert("请先勾选要导出的收藏单词");
+    const lines = idxs.map(i => {
+      const it = state.favorites[i];
+      const fStr = it.phrases.map(p => p.foreign).filter(Boolean).join(";");
+      const zStr = it.phrases.map(p => p.zh).filter(Boolean).join(";");
+      return `${it.word}|${it.meaning}|${it.phonetic}|${fStr}|${zStr}|${it.category}`;
+    });
+    downloadTextFile(`favorites_${new Date().toISOString().slice(0, 10)}.txt`, lines.join("\n"));
   });
 
-  el("pasteTokenPart2Btn").addEventListener("click", async () => {
-    const text = await readClipboardOrPrompt("后半段密钥");
-    if (!text) return;
-    state.tokenHalf2 = text;
-    el("pasteTokenPart2Btn").textContent = "后半段已粘贴 ✓";
-    setTimeout(() => { el("pasteTokenPart2Btn").textContent = "粘贴后半段"; }, 2000);
-    tryCombineTokenHalves();
+  el("exportFavJsonBtn").addEventListener("click", () => {
+    const idxs = getSelectedFavoriteIndices();
+    if (idxs.length === 0) return alert("请先勾选要导出的收藏单词");
+    const payload = {
+      bookName: "生词收藏册导出",
+      exportedAt: new Date().toISOString(),
+      items: idxs.map(i => state.favorites[i])
+    };
+    downloadTextFile(
+      `favorites_${new Date().toISOString().slice(0, 10)}.json`,
+      JSON.stringify(payload, null, 2),
+      "application/json;charset=utf-8"
+    );
   });
 
+  el("copyFavTextBtn").addEventListener("click", async () => {
+    const idxs = getSelectedFavoriteIndices();
+    if (idxs.length === 0) return alert("请先勾选要复制的收藏单词");
+    const lines = idxs.map(i => {
+      const it = state.favorites[i];
+      const fStr = it.phrases.map(p => p.foreign).filter(Boolean).join(";");
+      const zStr = it.phrases.map(p => p.zh).filter(Boolean).join(";");
+      return `${it.word}|${it.meaning}|${it.phonetic}|${fStr}|${zStr}|${it.category}`;
+    }).join("\n");
+    try {
+      await navigator.clipboard.writeText(lines);
+      el("copyFavTextBtn").textContent = "已复制 ✓";
+      setTimeout(() => { el("copyFavTextBtn").textContent = "复制文本"; }, 2000);
+    } catch (_) {
+      prompt("请复制以下收藏单词文本：", lines);
+    }
+  });
+
+  // 试听与导入样本
   el("testVoiceBtn").addEventListener("click", async () => {
     const btn = el("testVoiceBtn");
     btn.disabled = true;
@@ -1174,8 +1449,8 @@ function bindEvents() {
 
     try {
       const currentBook = state.books.find(b => b.id === state.currentBookId);
-      const existingFile = currentBook?.source === "repo" ? currentBook.file : "";
-      const newRepoId = await saveBookToGitHub(rawName, cleanItems, existingFile);
+      const existingPath = currentBook?.source === "repo" ? currentBook.path : "";
+      const newRepoId = await saveBookToGitHub(rawName, cleanItems, existingPath, "books");
       el("editorDialog").close();
       await reloadAllBooks(newRepoId);
     } catch (err) {
@@ -1206,7 +1481,7 @@ function bindEvents() {
       btn.textContent = "保存中...";
 
       if (target === "repo") {
-        const newRepoId = await saveBookToGitHub(rawName, items);
+        const newRepoId = await saveBookToGitHub(rawName, items, "", "books");
         el("importDialog").close();
         el("importTextArea").value = "";
         el("importBookName").value = "";
