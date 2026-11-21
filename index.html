@@ -9,75 +9,99 @@
   <title>WordFlow 沉浸背词</title>
   <link rel="stylesheet" href="style.css" />
 </head>
-<body data-theme="bedtime">
+<body data-theme="night">
   <div id="app" class="app-shell">
-    <!-- 顶部栏（全屏时完全隐藏） -->
+    <!-- 顶部栏（纯净全屏时完全隐藏） -->
     <header class="topbar">
       <div class="row">
         <select id="bookSelect" aria-label="选择单词册"></select>
         <select id="categorySelect" aria-label="选择分类">
           <option value="ALL">全部分类</option>
         </select>
-        <button id="openImportBtn" class="btn-ghost">+ 导入</button>
+        <button id="openImportBtn" class="btn-light-blue">+ 导入</button>
       </div>
+
+      <div class="row voice-row">
+        <select id="foreignVoiceSelect" aria-label="外文人声">
+          <option value="">外文：自动人声</option>
+        </select>
+        <select id="zhVoiceSelect" aria-label="中文人声">
+          <option value="">中文：自动人声</option>
+        </select>
+      </div>
+
       <div class="row mode-tabs">
-        <button class="mode-btn active" data-mode="bedtime">睡前</button>
-        <button class="mode-btn" data-mode="wakeup">醒来</button>
-        <button class="mode-btn" data-mode="daily">日常</button>
-        <button id="rotateBtn" class="btn-ghost">横/竖屏</button>
-        <button id="fullscreenBtn" class="btn-accent">纯净全屏</button>
+        <button class="theme-btn active" data-theme-val="night">夜晚模式</button>
+        <button class="theme-btn" data-theme-val="day">白天模式</button>
+        <button id="rotateBtn" class="btn-outline-blue">横/竖屏</button>
+        <button id="fullscreenBtn" class="btn-light-blue">纯净全屏</button>
       </div>
     </header>
 
-    <!-- 核心展示舞台（纯净全屏下仅保留此区域内容） -->
+    <!-- 中央单词展示舞台（纯净全屏下仅保留此区域） -->
     <main id="stage" class="stage">
-      <div class="card">
+      <div id="vocabCard" class="card">
         <div id="cardCategory" class="card-category">分类</div>
         <h1 id="cardWord" class="card-word">Ready</h1>
         <div id="cardPhonetic" class="card-phonetic">/ˈred.i/</div>
-        <div id="cardMeaning" class="card-meaning">点击播放开始背诵，或导入词库</div>
-        <ul id="cardPhrases" class="card-phrases"></ul>
+
+        <!-- 思考阶段提示条 -->
+        <div id="thinkHint" class="think-hint">思考中… 稍后自动显示意思（轻触提前查看）</div>
+
+        <!-- 延迟揭示区域：单词意思与词组/例句 -->
+        <div id="meaningZone" class="meaning-zone">
+          <div id="cardMeaning" class="card-meaning">点击“自动播放”开始背诵，或导入词库</div>
+          <ul id="cardPhrases" class="card-phrases"></ul>
+        </div>
       </div>
 
-      <!-- 全屏轻触后浮现的极简退出浮层，默认完全隐藏 -->
+      <!-- 全屏下轻触浮出的控制条（3秒自动隐藏） -->
       <div id="fsHud" class="fs-hud">
-        <button id="fsPlayToggle">暂停 / 继续</button>
-        <button id="fsRotateToggle">横/竖屏</button>
-        <button id="fsExitBtn">退出全屏</button>
+        <button id="fsPlayToggle" class="btn-light-blue">暂停 / 继续</button>
+        <button id="fsRevealBtn" class="btn-outline-blue">显示意思</button>
+        <button id="fsRotateToggle" class="btn-outline-blue">横/竖屏</button>
+        <button id="fsExitBtn" class="btn-outline-blue">退出全屏</button>
       </div>
     </main>
 
-    <!-- 底部控制面板（全屏时完全隐藏） -->
+    <!-- 底部控制面板（纯净全屏时完全隐藏） -->
     <footer class="controls">
       <div class="progress-line">
         <span id="progressText">0 / 0</span>
+        <label class="inline-check">
+          <input type="checkbox" id="readZhChk" checked /> 朗读中文
+        </label>
         <label class="inline-check">
           <input type="checkbox" id="readPhrasesChk" checked /> 连读词组
         </label>
         <select id="sleepTimerSelect" aria-label="定时停止">
           <option value="0">不定时</option>
-          <option value="10">10分钟后停</option>
-          <option value="20">20分钟后停</option>
-          <option value="30">30分钟后停</option>
+          <option value="10">10分钟停</option>
+          <option value="20">20分钟停</option>
+          <option value="30">30分钟停</option>
         </select>
       </div>
 
-      <div class="sliders">
+      <div class="sliders three-cols">
         <label>
-          <span>显示停留：<strong id="displaySpeedVal">4.0s</strong></span>
-          <input type="range" id="displaySpeed" min="1.5" max="15" step="0.5" value="4.0" />
+          <span>思考时间：<strong id="thinkTimeVal">2.5s</strong></span>
+          <input type="range" id="thinkTime" min="0" max="15" step="0.5" value="2.5" />
         </label>
         <label>
-          <span>朗读语速：<strong id="speechRateVal">0.80x</strong></span>
-          <input type="range" id="speechRate" min="0.5" max="1.6" step="0.05" value="0.80" />
+          <span>释义停留：<strong id="stayTimeVal">3.5s</strong></span>
+          <input type="range" id="stayTime" min="1.5" max="15" step="0.5" value="3.5" />
+        </label>
+        <label>
+          <span>朗读语速：<strong id="speechRateVal">0.85x</strong></span>
+          <input type="range" id="speechRate" min="0.5" max="1.6" step="0.05" value="0.85" />
         </label>
       </div>
 
       <div class="transport">
-        <button id="prevBtn">上一个</button>
-        <button id="speakOnceBtn">单次朗读</button>
-        <button id="playPauseBtn" class="btn-primary">自动播放</button>
-        <button id="nextBtn">下一个</button>
+        <button id="prevBtn" class="btn-outline-blue">上一个</button>
+        <button id="speakOnceBtn" class="btn-outline-blue">单次朗读</button>
+        <button id="playPauseBtn" class="btn-light-blue">自动播放</button>
+        <button id="nextBtn" class="btn-outline-blue">下一个</button>
       </div>
     </footer>
   </div>
@@ -91,11 +115,11 @@
         选择本地 .json 或 .txt 文件
         <input type="file" id="importFileInput" accept=".json,.txt,.csv" />
       </label>
-      <textarea id="importTextArea" rows="6" placeholder="也可直接粘贴 JSON，或每行一条文本格式：&#10;单词 | 音标 | 释义 | 词组1; 词组2 | 分类"></textarea>
+      <textarea id="importTextArea" rows="6" placeholder="支持粘贴 JSON，或每行一条文本格式：&#10;单词 | 音标 | 释义 | 词组1; 词组2 | 分类"></textarea>
       <div class="modal-actions">
         <button type="button" id="deleteLocalBookBtn" class="btn-danger">删除当前本地库</button>
-        <button value="cancel" class="btn-ghost">取消</button>
-        <button type="button" id="confirmImportBtn" class="btn-primary">保存并使用</button>
+        <button value="cancel" class="btn-outline-blue">取消</button>
+        <button type="button" id="confirmImportBtn" class="btn-light-blue">保存并使用</button>
       </div>
     </form>
   </dialog>
