@@ -11,7 +11,7 @@
 </head>
 <body data-theme="night">
   <div id="app" class="app-shell">
-    <!-- 顶部极简栏：左上 3 个圆形图标 + 右上进度与独立纯净全屏圆形图标 -->
+    <!-- 顶部极简栏 -->
     <header class="topbar">
       <div class="icon-group-left">
         <button id="openSettingsBtn" class="circle-icon-btn" title="设置" aria-label="设置">
@@ -84,21 +84,65 @@
     </footer>
   </div>
 
-  <!-- 弹窗 1：综合设置（内建 GitHub 直连配置） -->
+  <!-- 弹窗 1：综合设置 -->
   <dialog id="settingsDialog" class="modal">
     <div class="modal-body">
       <div class="modal-header">
-        <h3>播放与仓库设置</h3>
+        <h3>播放与音源设置</h3>
         <button type="button" class="close-x" data-close="settingsDialog">✕</button>
       </div>
 
       <div class="setting-section">
-        <span class="section-label">GitHub 词库仓库直连（仅保存在当前浏览器）</span>
-        <div class="btn-grid-2">
-          <input type="text" id="ghOwnerInput" value="Ankstam" placeholder="GitHub 用户名" />
-          <input type="text" id="ghRepoInput" value="recite1" placeholder="仓库名" />
+        <span class="section-label">第三方云端人声（微软神经网络高清音源）</span>
+        <div class="stack-col">
+          <select id="foreignVoiceSelect" aria-label="外文人声"></select>
+          <select id="zhVoiceSelect" aria-label="中文人声"></select>
         </div>
-        <input type="password" id="ghTokenInput" placeholder="粘贴 github_pat_... 密钥（填一次自动记住）" />
+      </div>
+
+      <div class="setting-section">
+        <span class="section-label">节奏与语速自定义（精度 0.1）</span>
+        <div class="slider-list">
+          <label>
+            <div class="slider-head">
+              <span>思考时间（仅看原文）</span>
+              <strong id="thinkTimeVal">2.5s</strong>
+            </div>
+            <input type="range" id="thinkTime" min="0" max="15" step="0.1" value="2.5" />
+          </label>
+          <label>
+            <div class="slider-head">
+              <span>释义停留（显示意思后）</span>
+              <strong id="stayTimeVal">3.5s</strong>
+            </div>
+            <input type="range" id="stayTime" min="0.5" max="15" step="0.1" value="3.5" />
+          </label>
+          <label>
+            <div class="slider-head">
+              <span>朗读语速</span>
+              <strong id="speechRateVal">0.9x</strong>
+            </div>
+            <input type="range" id="speechRate" min="0.5" max="2.0" step="0.1" value="0.9" />
+          </label>
+        </div>
+      </div>
+
+      <div class="setting-section">
+        <span class="section-label">朗读内容与定时</span>
+        <div class="check-row">
+          <label class="inline-check">
+            <input type="checkbox" id="readZhChk" checked /> 朗读中文意思
+          </label>
+          <label class="inline-check">
+            <input type="checkbox" id="readPhrasesChk" checked /> 连读词组/句子
+          </label>
+        </div>
+        <select id="sleepTimerSelect" aria-label="定时停止">
+          <option value="0">定时停止：不定时</option>
+          <option value="10">定时停止：10 分钟后</option>
+          <option value="20">定时停止：20 分钟后</option>
+          <option value="30">定时停止：30 分钟后</option>
+        </select>
       </div>
 
       <div class="setting-section">
@@ -111,60 +155,12 @@
       </div>
 
       <div class="setting-section">
-        <span class="section-label">朗读人声</span>
-        <div class="stack-col">
-          <select id="foreignVoiceSelect" aria-label="外文人声">
-            <option value="">外文：自动人声</option>
-          </select>
-          <select id="zhVoiceSelect" aria-label="中文人声">
-            <option value="">中文：自动人声</option>
-          </select>
+        <span class="section-label">GitHub 词库仓库直连</span>
+        <div class="btn-grid-2">
+          <input type="text" id="ghOwnerInput" value="Ankstam" placeholder="GitHub 用户名" />
+          <input type="text" id="ghRepoInput" value="recite1" placeholder="仓库名" />
         </div>
-      </div>
-
-      <div class="setting-section">
-        <span class="section-label">朗读内容与定时</span>
-        <div class="check-row">
-          <label class="inline-check">
-            <input type="checkbox" id="readZhChk" checked /> 朗读中文意思
-          </label>
-          <label class="inline-check">
-            <input type="checkbox" id="readPhrasesChk" checked /> 连读词组/例句
-          </label>
-        </div>
-        <select id="sleepTimerSelect" aria-label="定时停止">
-          <option value="0">定时停止：不定时</option>
-          <option value="10">定时停止：10 分钟后</option>
-          <option value="20">定时停止：20 分钟后</option>
-          <option value="30">定时停止：30 分钟后</option>
-        </select>
-      </div>
-
-      <div class="setting-section">
-        <span class="section-label">节奏与语速自定义</span>
-        <div class="slider-list">
-          <label>
-            <div class="slider-head">
-              <span>思考时间（仅看原文）</span>
-              <strong id="thinkTimeVal">2.5s</strong>
-            </div>
-            <input type="range" id="thinkTime" min="0" max="15" step="0.5" value="2.5" />
-          </label>
-          <label>
-            <div class="slider-head">
-              <span>释义停留（显示意思后）</span>
-              <strong id="stayTimeVal">3.5s</strong>
-            </div>
-            <input type="range" id="stayTime" min="1.5" max="15" step="0.5" value="3.5" />
-          </label>
-          <label>
-            <div class="slider-head">
-              <span>朗读语速</span>
-              <strong id="speechRateVal">0.85x</strong>
-            </div>
-            <input type="range" id="speechRate" min="0.5" max="1.6" step="0.05" value="0.85" />
-          </label>
-        </div>
+        <input type="password" id="ghTokenInput" placeholder="粘贴 github_pat_... 密钥（填一次自动记住）" />
       </div>
     </div>
   </dialog>
@@ -246,7 +242,7 @@
     </div>
   </dialog>
 
-  <!-- 弹窗 4：导入新词库 -->
+  <!-- 弹窗 4：导入新词库（带一键复制样本） -->
   <dialog id="importDialog" class="modal">
     <div class="modal-body">
       <div class="modal-header">
@@ -259,11 +255,29 @@
         <option value="repo">保存位置：GitHub 云端仓库 (books/)</option>
         <option value="local">保存位置：手机本地浏览器</option>
       </select>
+
+      <!-- 格式说明与可复制样本框 -->
+      <div class="setting-section" style="background: var(--bg); padding: 10px; border-radius: 10px; border: 1px solid var(--border);">
+        <div class="slider-head" style="margin-bottom: 6px;">
+          <span class="section-label">格式：单词|单词意思|音标|句子|句子意思|分类（支持 Tab 制表符，空则无）</span>
+        </div>
+        <pre id="sampleTemplateBox" style="font-size: 11px; color: var(--subtext); white-space: pre-wrap; word-break: break-all; line-height: 1.5; margin-bottom: 8px;">tranquil|adj. 平静的；宁静的|/ˈtræŋ.kwɪl/|a tranquil night|宁静的夜晚|睡前助眠
+serendipity|n. 机缘巧合||Pure serendipity.|纯属机缘巧合。|日常高频
+unwind|v. 放松||||睡前助眠
+おやすみなさい|晚安（礼貌用语）|平假名|ゆっくりおやすみなさい|好好休息，晚安|日语</pre>
+        <div class="btn-grid-2">
+          <button type="button" id="copySampleBtn" class="btn-outline-blue" style="padding: 6px; font-size: 12px;">复制格式样本</button>
+          <button type="button" id="fillSampleBtn" class="btn-outline-blue" style="padding: 6px; font-size: 12px;">填入样本测试</button>
+        </div>
+      </div>
+
       <label class="file-box">
-        选择本地 .json 或 .txt 文件
-        <input type="file" id="importFileInput" accept=".json,.txt,.csv" />
+        选择本地 .txt / .tsv / .json 文件
+        <input type="file" id="importFileInput" accept=".json,.txt,.tsv,.csv" />
       </label>
-      <textarea id="importTextArea" rows="6" placeholder="支持粘贴 JSON，或每行一条文本格式：&#10;单词 | 音标 | 释义 | 词组1; 词组2 | 分类"></textarea>
+
+      <textarea id="importTextArea" rows="5" placeholder="在此粘贴文本（支持 | 或制表符分隔，空项留空即可）或 JSON"></textarea>
+
       <div class="modal-actions">
         <button type="button" class="btn-outline-blue" data-close="importDialog">取消</button>
         <button type="button" id="confirmImportBtn" class="btn-light-blue">确认保存并使用</button>
