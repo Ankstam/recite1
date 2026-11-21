@@ -11,28 +11,28 @@
 </head>
 <body data-theme="night">
   <div id="app" class="app-shell">
-    <!-- 极简顶部栏：左上角 3 个独立圆形图标按钮（纯净全屏时完全隐藏） -->
+    <!-- 顶部极简栏：左上 3 个圆形图标 + 右上进度与独立纯净全屏圆形图标 -->
     <header class="topbar">
       <div class="icon-group-left">
         <!-- 1. 设置圆形按钮 -->
         <button id="openSettingsBtn" class="circle-icon-btn" title="设置" aria-label="设置">
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="3"></circle>
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
           </svg>
         </button>
 
-        <!-- 2. 词库圆形按钮 -->
-        <button id="openBooksBtn" class="circle-icon-btn" title="词库与分类" aria-label="词库与分类">
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <!-- 2. 词库与分类管理圆形按钮 -->
+        <button id="openBooksBtn" class="circle-icon-btn" title="词库管理" aria-label="词库管理">
+          <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
             <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
           </svg>
         </button>
 
-        <!-- 3. 导入圆形按钮 -->
+        <!-- 3. 导入/新建圆形按钮 -->
         <button id="openImportBtn" class="circle-icon-btn" title="导入词库" aria-label="导入词库">
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
             <polyline points="7 10 12 15 17 10"></polyline>
             <line x1="12" y1="15" x2="12" y2="3"></line>
@@ -40,7 +40,18 @@
         </button>
       </div>
 
-      <span id="progressText" class="progress-badge">0 / 0</span>
+      <div class="icon-group-right">
+        <span id="progressText" class="progress-badge">0 / 0</span>
+        <!-- 4. 右上角独立进入纯净全屏圆形按钮 -->
+        <button id="fullscreenBtn" class="circle-icon-btn" title="进入纯净模式" aria-label="进入纯净模式">
+          <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="15 3 21 3 21 9"></polyline>
+            <polyline points="9 21 3 21 3 15"></polyline>
+            <line x1="21" y1="3" x2="14" y2="10"></line>
+            <line x1="3" y1="21" x2="10" y2="14"></line>
+          </svg>
+        </button>
+      </div>
     </header>
 
     <!-- 中央单词展示舞台（纯净全屏下仅保留此区域） -->
@@ -50,26 +61,24 @@
         <h1 id="cardWord" class="card-word">Ready</h1>
         <div id="cardPhonetic" class="card-phonetic">/ˈred.i/</div>
 
-        <!-- 思考阶段提示 -->
         <div id="thinkHint" class="think-hint">思考中… 稍后显示意思（轻触提前查看）</div>
 
-        <!-- 延迟揭示区域 -->
         <div id="meaningZone" class="meaning-zone">
           <div id="cardMeaning" class="card-meaning">点击“自动播放”开始背诵，或点击左上角导入词库</div>
           <ul id="cardPhrases" class="card-phrases"></ul>
         </div>
       </div>
 
-      <!-- 全屏轻触后浮现的极简控制条（3秒后自动隐藏） -->
+      <!-- 纯净全屏下轻触浮现的退出与控制条 -->
       <div id="fsHud" class="fs-hud">
         <button id="fsPlayToggle" class="btn-light-blue">暂停 / 继续</button>
         <button id="fsRevealBtn" class="btn-outline-blue">显示意思</button>
         <button id="fsRotateToggle" class="btn-outline-blue">横/竖屏</button>
-        <button id="fsExitBtn" class="btn-outline-blue">退出全屏</button>
+        <button id="fsExitBtn" class="btn-outline-blue">退出纯净</button>
       </div>
     </main>
 
-    <!-- 底部单行核心播放栏（纯净全屏时完全隐藏） -->
+    <!-- 底部单行核心播放栏 -->
     <footer class="controls">
       <div class="transport">
         <button id="prevBtn" class="btn-outline-blue">上一个</button>
@@ -80,26 +89,28 @@
     </footer>
   </div>
 
-  <!-- 弹窗 1：综合设置弹窗 -->
+  <!-- 弹窗 1：综合设置与云端密钥 -->
   <dialog id="settingsDialog" class="modal">
     <div class="modal-body">
       <div class="modal-header">
-        <h3>播放与显示设置</h3>
+        <h3>播放与系统设置</h3>
         <button type="button" class="close-x" data-close="settingsDialog">✕</button>
       </div>
 
-      <!-- 主题与屏幕 -->
       <div class="setting-section">
-        <span class="section-label">主题与屏幕</span>
+        <span class="section-label">主题与屏幕方向</span>
         <div class="btn-grid-2">
           <button type="button" class="theme-btn active" data-theme-val="night">夜晚模式</button>
           <button type="button" class="theme-btn" data-theme-val="day">白天模式</button>
-          <button type="button" id="rotateBtn" class="btn-outline-blue">横 / 竖屏切换</button>
-          <button type="button" id="fullscreenBtn" class="btn-light-blue">进入纯净全屏</button>
+          <button type="button" id="rotateBtn" class="btn-outline-blue" style="grid-column: span 2;">横 / 竖屏切换</button>
         </div>
       </div>
 
-      <!-- 双语人声选择 -->
+      <div class="setting-section">
+        <span class="section-label">云端同步鉴权（对应 Cloudflare ADMIN_PASSWORD）</span>
+        <input type="password" id="adminPwdInput" placeholder="输入云端管理密码（仅保存/删除 GitHub 词库时需校验）" />
+      </div>
+
       <div class="setting-section">
         <span class="section-label">朗读人声</span>
         <div class="stack-col">
@@ -112,9 +123,8 @@
         </div>
       </div>
 
-      <!-- 朗读内容与定时 -->
       <div class="setting-section">
-        <span class="section-label">朗读规则与定时</span>
+        <span class="section-label">朗读内容与定时</span>
         <div class="check-row">
           <label class="inline-check">
             <input type="checkbox" id="readZhChk" checked /> 朗读中文意思
@@ -131,7 +141,6 @@
         </select>
       </div>
 
-      <!-- 时间与语速滑块 -->
       <div class="setting-section">
         <span class="section-label">节奏与语速自定义</span>
         <div class="slider-list">
@@ -161,42 +170,96 @@
     </div>
   </dialog>
 
-  <!-- 弹窗 2：词库与分类选择弹窗 -->
+  <!-- 弹窗 2：词库切换、分类过滤、修改与批量删除 -->
   <dialog id="booksDialog" class="modal">
     <div class="modal-body">
       <div class="modal-header">
-        <h3>词库与分类</h3>
+        <h3>词库与分类管理</h3>
         <button type="button" class="close-x" data-close="booksDialog">✕</button>
       </div>
 
       <div class="setting-section">
-        <span class="section-label">当前单词册</span>
+        <span class="section-label">当前背诵词库</span>
         <select id="bookSelect" aria-label="选择单词册"></select>
       </div>
 
       <div class="setting-section">
-        <span class="section-label">筛选分类</span>
+        <span class="section-label">当前背诵分类过滤</span>
         <select id="categorySelect" aria-label="选择分类">
           <option value="ALL">全部分类</option>
         </select>
       </div>
 
+      <div class="setting-section">
+        <button type="button" id="openEditorBtn" class="btn-light-blue">修改当前词库 / 批量改分类</button>
+      </div>
+
+      <div class="setting-section">
+        <div class="slider-head">
+          <span class="section-label">多选批量删除词库（云端 / 本地）</span>
+          <label class="inline-check" style="font-size: 12px;">
+            <input type="checkbox" id="selectAllBooksChk" /> 全选
+          </label>
+        </div>
+        <div id="bookManageList" class="book-check-list"></div>
+      </div>
+
       <div class="modal-actions">
-        <button type="button" id="deleteLocalBookBtn" class="btn-danger">删除当前本地库</button>
-        <button type="button" class="btn-light-blue" data-close="booksDialog">完成</button>
+        <button type="button" id="batchDeleteBooksBtn" class="btn-danger">删除所选 (0)</button>
+        <button type="button" class="btn-outline-blue" data-close="booksDialog">完成</button>
       </div>
     </div>
   </dialog>
 
-  <!-- 弹窗 3：本地导入弹窗 -->
+  <!-- 弹窗 3：词库内容与分类编辑器（支持保存到本地或 GitHub 云端） -->
+  <dialog id="editorDialog" class="modal modal-large">
+    <div class="modal-body">
+      <div class="modal-header">
+        <h3>编辑词库与分类</h3>
+        <button type="button" class="close-x" data-close="editorDialog">✕</button>
+      </div>
+
+      <div class="setting-section">
+        <span class="section-label">词库名称</span>
+        <input type="text" id="editBookNameInput" placeholder="输入词库名称" />
+      </div>
+
+      <div class="setting-section">
+        <span class="section-label">一键修改整本词库分类</span>
+        <div class="row">
+          <input type="text" id="batchCategoryInput" placeholder="如：睡前助眠 / 高考核心" />
+          <button type="button" id="applyBatchCategoryBtn" class="btn-outline-blue" style="white-space: nowrap;">全部应用</button>
+        </div>
+      </div>
+
+      <div class="setting-section">
+        <div class="slider-head">
+          <span class="section-label">单词列表（可直接修改单词、分类、释义与词组）</span>
+          <button type="button" id="addWordItemBtn" class="btn-outline-blue" style="padding: 4px 10px; font-size: 12px;">+ 新增单词</button>
+        </div>
+        <div id="editorItemsList" class="editor-items-list"></div>
+      </div>
+
+      <div class="modal-actions" style="flex-wrap: wrap;">
+        <button type="button" id="saveEditLocalBtn" class="btn-outline-blue">保存到本地</button>
+        <button type="button" id="saveEditCloudBtn" class="btn-light-blue">保存到 GitHub 云端</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- 弹窗 4：导入新词库 -->
   <dialog id="importDialog" class="modal">
     <div class="modal-body">
       <div class="modal-header">
-        <h3>导入本地单词册</h3>
+        <h3>导入单词册</h3>
         <button type="button" class="close-x" data-close="importDialog">✕</button>
       </div>
 
       <input type="text" id="importBookName" placeholder="词库名称（如：睡前高频词）" />
+      <select id="importTargetSelect">
+        <option value="local">保存位置：手机本地浏览器</option>
+        <option value="repo">保存位置：GitHub 云端仓库 (books/)</option>
+      </select>
       <label class="file-box">
         选择本地 .json 或 .txt 文件
         <input type="file" id="importFileInput" accept=".json,.txt,.csv" />
@@ -204,7 +267,7 @@
       <textarea id="importTextArea" rows="6" placeholder="支持粘贴 JSON，或每行一条文本格式：&#10;单词 | 音标 | 释义 | 词组1; 词组2 | 分类"></textarea>
       <div class="modal-actions">
         <button type="button" class="btn-outline-blue" data-close="importDialog">取消</button>
-        <button type="button" id="confirmImportBtn" class="btn-light-blue">保存并使用</button>
+        <button type="button" id="confirmImportBtn" class="btn-light-blue">确认保存并使用</button>
       </div>
     </div>
   </dialog>
