@@ -14,7 +14,6 @@
     <!-- 顶部极简栏：左上 3 个圆形图标 + 右上进度与独立纯净全屏圆形图标 -->
     <header class="topbar">
       <div class="icon-group-left">
-        <!-- 1. 设置圆形按钮 -->
         <button id="openSettingsBtn" class="circle-icon-btn" title="设置" aria-label="设置">
           <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="3"></circle>
@@ -22,7 +21,6 @@
           </svg>
         </button>
 
-        <!-- 2. 词库与分类管理圆形按钮 -->
         <button id="openBooksBtn" class="circle-icon-btn" title="词库管理" aria-label="词库管理">
           <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
@@ -30,7 +28,6 @@
           </svg>
         </button>
 
-        <!-- 3. 导入/新建圆形按钮 -->
         <button id="openImportBtn" class="circle-icon-btn" title="导入词库" aria-label="导入词库">
           <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
@@ -42,7 +39,6 @@
 
       <div class="icon-group-right">
         <span id="progressText" class="progress-badge">0 / 0</span>
-        <!-- 4. 右上角独立进入纯净全屏圆形按钮 -->
         <button id="fullscreenBtn" class="circle-icon-btn" title="进入纯净模式" aria-label="进入纯净模式">
           <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="15 3 21 3 21 9"></polyline>
@@ -54,7 +50,7 @@
       </div>
     </header>
 
-    <!-- 中央单词展示舞台（纯净全屏下仅保留此区域） -->
+    <!-- 中央单词展示舞台 -->
     <main id="stage" class="stage">
       <div id="vocabCard" class="card">
         <div id="cardCategory" class="card-category">分类</div>
@@ -69,7 +65,6 @@
         </div>
       </div>
 
-      <!-- 纯净全屏下轻触浮现的退出与控制条 -->
       <div id="fsHud" class="fs-hud">
         <button id="fsPlayToggle" class="btn-light-blue">暂停 / 继续</button>
         <button id="fsRevealBtn" class="btn-outline-blue">显示意思</button>
@@ -89,12 +84,21 @@
     </footer>
   </div>
 
-  <!-- 弹窗 1：综合设置与云端密钥 -->
+  <!-- 弹窗 1：综合设置（内建 GitHub 直连配置） -->
   <dialog id="settingsDialog" class="modal">
     <div class="modal-body">
       <div class="modal-header">
-        <h3>播放与系统设置</h3>
+        <h3>播放与仓库设置</h3>
         <button type="button" class="close-x" data-close="settingsDialog">✕</button>
+      </div>
+
+      <div class="setting-section">
+        <span class="section-label">GitHub 词库仓库直连（仅保存在当前浏览器）</span>
+        <div class="btn-grid-2">
+          <input type="text" id="ghOwnerInput" value="Ankstam" placeholder="GitHub 用户名" />
+          <input type="text" id="ghRepoInput" value="recite1" placeholder="仓库名" />
+        </div>
+        <input type="password" id="ghTokenInput" placeholder="粘贴 github_pat_... 密钥（填一次自动记住）" />
       </div>
 
       <div class="setting-section">
@@ -104,11 +108,6 @@
           <button type="button" class="theme-btn" data-theme-val="day">白天模式</button>
           <button type="button" id="rotateBtn" class="btn-outline-blue" style="grid-column: span 2;">横 / 竖屏切换</button>
         </div>
-      </div>
-
-      <div class="setting-section">
-        <span class="section-label">云端同步鉴权（对应 Cloudflare ADMIN_PASSWORD）</span>
-        <input type="password" id="adminPwdInput" placeholder="输入云端管理密码（仅保存/删除 GitHub 词库时需校验）" />
       </div>
 
       <div class="setting-section">
@@ -211,7 +210,7 @@
     </div>
   </dialog>
 
-  <!-- 弹窗 3：词库内容与分类编辑器（支持保存到本地或 GitHub 云端） -->
+  <!-- 弹窗 3：词库内容与分类编辑器 -->
   <dialog id="editorDialog" class="modal modal-large">
     <div class="modal-body">
       <div class="modal-header">
@@ -234,7 +233,7 @@
 
       <div class="setting-section">
         <div class="slider-head">
-          <span class="section-label">单词列表（可直接修改单词、分类、释义与词组）</span>
+          <span class="section-label">单词列表</span>
           <button type="button" id="addWordItemBtn" class="btn-outline-blue" style="padding: 4px 10px; font-size: 12px;">+ 新增单词</button>
         </div>
         <div id="editorItemsList" class="editor-items-list"></div>
@@ -257,8 +256,8 @@
 
       <input type="text" id="importBookName" placeholder="词库名称（如：睡前高频词）" />
       <select id="importTargetSelect">
-        <option value="local">保存位置：手机本地浏览器</option>
         <option value="repo">保存位置：GitHub 云端仓库 (books/)</option>
+        <option value="local">保存位置：手机本地浏览器</option>
       </select>
       <label class="file-box">
         选择本地 .json 或 .txt 文件
