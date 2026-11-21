@@ -105,7 +105,7 @@
     </footer>
   </div>
 
-  <!-- 弹窗 1：综合设置（密钥已简化为自动拼接填入） -->
+  <!-- 弹窗 1：综合设置 -->
   <dialog id="settingsDialog" class="modal">
     <div class="modal-body">
       <div class="modal-header">
@@ -157,6 +157,9 @@
         <span class="section-label">朗读内容与定时</span>
         <div class="check-row">
           <label class="inline-check">
+            <input type="checkbox" id="readWordChk" checked /> 朗读单词
+          </label>
+          <label class="inline-check">
             <input type="checkbox" id="readZhChk" checked /> 朗读中文意思
           </label>
           <label class="inline-check">
@@ -192,7 +195,7 @@
     </div>
   </dialog>
 
-  <!-- 弹窗 2：收藏册管理（支持自定义勾选背诵、保存至 GitHub 新文件夹与分类、导出） -->
+  <!-- 弹窗 2：收藏册管理 -->
   <dialog id="favsDialog" class="modal modal-large">
     <div class="modal-body">
       <div class="modal-header">
@@ -210,13 +213,11 @@
         <div id="favsManageList" class="book-check-list" style="max-height: 220px;"></div>
       </div>
 
-      <!-- 直接用所选收藏背诵或导出 -->
       <div class="btn-grid-2">
         <button type="button" id="reciteSelectedFavsBtn" class="btn-light-blue">用所选收藏背诵</button>
         <button type="button" id="exportFavsBtn" class="btn-outline-blue">导出所选 (.txt)</button>
       </div>
 
-      <!-- 保存到 GitHub 新文件夹并设置分类 -->
       <div class="setting-section" style="background: var(--bg); padding: 10px; border-radius: 12px; border: 1px solid var(--border);">
         <span class="section-label">保存到 GitHub 新文件夹（自动同步至词库列表）</span>
         <div class="btn-grid-2">
