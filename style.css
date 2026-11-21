@@ -65,7 +65,7 @@ html, body {
   transform-origin: top left;
 }
 
-/* 顶部极简栏：左右分离圆形图标 */
+/* 顶部极简栏 */
 .topbar {
   display: flex;
   align-items: center;
@@ -76,7 +76,7 @@ html, body {
 .icon-group-left, .icon-group-right {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 9px;
 }
 
 .circle-icon-btn {
@@ -167,6 +167,14 @@ button:active {
   max-width: 680px;
 }
 
+.card-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
 .card-category {
   display: inline-block;
   font-size: 12px;
@@ -175,7 +183,16 @@ button:active {
   background: var(--surface);
   padding: 3px 12px;
   border-radius: 999px;
-  margin-bottom: 14px;
+}
+
+.card-fav-badge {
+  display: inline-block;
+  font-size: 12px;
+  color: var(--btn-blue);
+  background: var(--btn-blue-soft);
+  border: 1px solid var(--btn-blue-border);
+  padding: 3px 10px;
+  border-radius: 999px;
 }
 
 .card-word {
@@ -252,6 +269,30 @@ button:active {
   display: block;
   margin-top: 3px;
   transition: opacity 0.25s ease;
+}
+
+/* 双击收藏轻提示气泡 */
+.fav-toast {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%) translateY(-8px);
+  background: var(--surface);
+  color: var(--btn-blue);
+  border: 1px solid var(--btn-blue-border);
+  padding: 6px 16px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  z-index: 20;
+}
+
+.fav-toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
 }
 
 /* 纯净全屏：彻底隐藏顶部图标栏与底部控制区 */
@@ -370,6 +411,12 @@ body.pure-fullscreen .fs-hud.visible {
   gap: 8px;
 }
 
+.btn-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
 .stack-col {
   display: flex;
   flex-direction: column;
@@ -425,7 +472,7 @@ body.pure-fullscreen .fs-hud.visible {
   accent-color: var(--btn-blue);
 }
 
-/* 多选删除词库列表 */
+/* 列表项样式 */
 .book-check-list {
   max-height: 180px;
   overflow-y: auto;
@@ -456,6 +503,28 @@ body.pure-fullscreen .fs-hud.visible {
   width: 16px;
   height: 16px;
   accent-color: var(--btn-blue);
+  flex-shrink: 0;
+}
+
+.fav-item-main {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+  min-width: 0;
+  flex: 1;
+}
+
+.fav-item-word {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.fav-item-sub {
+  font-size: 11px;
+  color: var(--subtext);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .tag-cloud, .tag-local {
@@ -463,6 +532,7 @@ body.pure-fullscreen .fs-hud.visible {
   padding: 1px 6px;
   border-radius: 6px;
   margin-left: auto;
+  flex-shrink: 0;
 }
 
 .tag-cloud {
