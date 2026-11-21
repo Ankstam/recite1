@@ -84,7 +84,7 @@
     </footer>
   </div>
 
-  <!-- 弹窗 1：综合设置 -->
+  <!-- 弹窗 1：综合设置（英语 / 日语 / 中文 独立人声） -->
   <dialog id="settingsDialog" class="modal">
     <div class="modal-body">
       <div class="modal-header">
@@ -93,11 +93,16 @@
       </div>
 
       <div class="setting-section">
-        <span class="section-label">第三方云端人声（微软神经网络高清音源）</span>
-        <div class="stack-col">
-          <select id="foreignVoiceSelect" aria-label="外文人声"></select>
-          <select id="zhVoiceSelect" aria-label="中文人声"></select>
+        <div class="slider-head">
+          <span class="section-label">三语独立音源（微软云端 / Google 网页在线）</span>
+          <button type="button" id="testVoiceBtn" class="btn-outline-blue" style="padding: 4px 10px; font-size: 12px;">试听三语</button>
         </div>
+        <div class="stack-col">
+          <select id="enVoiceSelect" aria-label="英语发音人"></select>
+          <select id="jaVoiceSelect" aria-label="日语发音人"></select>
+          <select id="zhVoiceSelect" aria-label="中文发音人"></select>
+        </div>
+        <div id="ttsStatusText" style="font-size: 11px; color: var(--meaning-color);">当前状态：就绪（支持云端 MP3 与自动容错切换）</div>
       </div>
 
       <div class="setting-section">
@@ -242,7 +247,7 @@
     </div>
   </dialog>
 
-  <!-- 弹窗 4：导入新词库（带一键复制样本） -->
+  <!-- 弹窗 4：导入新词库 -->
   <dialog id="importDialog" class="modal">
     <div class="modal-body">
       <div class="modal-header">
@@ -256,10 +261,9 @@
         <option value="local">保存位置：手机本地浏览器</option>
       </select>
 
-      <!-- 格式说明与可复制样本框 -->
       <div class="setting-section" style="background: var(--bg); padding: 10px; border-radius: 10px; border: 1px solid var(--border);">
         <div class="slider-head" style="margin-bottom: 6px;">
-          <span class="section-label">格式：单词|单词意思|音标|句子|句子意思|分类（支持 Tab 制表符，空则无）</span>
+          <span class="section-label">格式：单词|单词意思|音标|句子|句子意思|分类（支持 Tab，空则无）</span>
         </div>
         <pre id="sampleTemplateBox" style="font-size: 11px; color: var(--subtext); white-space: pre-wrap; word-break: break-all; line-height: 1.5; margin-bottom: 8px;">tranquil|adj. 平静的；宁静的|/ˈtræŋ.kwɪl/|a tranquil night|宁静的夜晚|睡前助眠
 serendipity|n. 机缘巧合||Pure serendipity.|纯属机缘巧合。|日常高频
