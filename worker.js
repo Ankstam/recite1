@@ -1,19 +1,124 @@
-function utf8ToBase64(str) {
-  const bytes = new TextEncoder().encode(str);
-  let binary = "";
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary);
+function escapeXml(str) {
+  return String(str || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
 }
 
-function base64ToUtf8(b64) {
-  const binary = atob(b64.replace(/\s/g, ""));
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
+// 合成微软 Edge Neural TTS 音频流（返回 MP3）
+async function synthesizeEdgeTts(text, voice = "en-US-JennyNeural", rateNum = 1.0) {
+  const token = "6A5AA1D4EAFF4E9FB37E23D68491D6F4";
+  const connId = crypto.randomUUID().replace(/-/g, "");
+  const endpoint = `https://api.msedgeservices.com/tts/cognitiveservices/websocket/v1?Ocp-Apim-Subscription-Key=${token}&ConnectionId=${connId}`;
+
+  const upgradeRes = await fetch(endpoint, {
+    headers: {
+      "Upgrade": "websocket",
+      "Origin": "chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold",
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0"
+    }
+  });
+
+  const ws = upgradeRes.webSocket;
+  if (!ws) {
+    throw new Error(`TTS WebSocket 握手失败 (${upgradeRes.status})`);
   }
-  return new TextDecoder().decode(bytes);
+
+  ws.accept();
+
+  const ratePct = Math.round((Math.max(0.5, Math.min(2.0, rateNum)) - 1.0) * 100);
+  const rateStr = `${ratePct >= 0 ? "+" : ""}${ratePct}%`;
+  const langMatch = voice.match(/^([a-z]{2}-[A-Z]{2})/);
+  const xmlLang = langMatch ? langMatch[1] : "en-US";
+  const reqId = crypto.randomUUID().replace(/-/g, "");
+  const timestamp = new Date().toISOString();
+
+  const configMsg =
+    `X-Timestamp:${timestamp}\r\n` +
+    `Content-Type:application/json; charset=utf-8\r\n` +
+    `Path:speech.config\r\n\r\n` +
+    JSON.stringify({
+      context: {
+        synthesis: {
+          audio: {
+            metadataoptions: { sentenceBoundaryEnabled: "false", wordBoundaryEnabled: "false" },
+            outputFormat: "audio-24khz-48kbitrate-mono-mp3"
+          }
+        }
+      }
+    });
+
+  const ssmlBody =
+    `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='${xmlLang}'>` +
+    `<voice name='${escapeXml(voice)}'>` +
+    `<prosody pitch='+0Hz' rate='${rateStr}' volume='+0%'>${escapeXml(text)}</prosody>` +
+    `</voice></speak>`;
+
+  const ssmlMsg =
+    `X-RequestId:${reqId}\r\n` +
+    `Content-Type:application/ssml+xml\r\n` +
+    `X-Timestamp:${timestamp}\r\n` +
+    `Path:ssml\r\n\r\n` +
+    ssmlBody;
+
+  const chunks = [];
+  const decoder = new TextDecoder();
+
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      try { ws.close(); } catch (_) {}
+      reject(new Error("TTS 合成超时"));
+    }, 12000);
+
+    ws.addEventListener("message", event => {
+      if (typeof event.data === "string") {
+        if (event.data.includes("Path:turn.end")) {
+          clearTimeout(timer);
+          try { ws.close(); } catch (_) {}
+          resolve();
+        }
+      } else if (event.data instanceof ArrayBuffer) {
+        const buf = event.data;
+        if (buf.byteLength > 2) {
+          const headerLen = new DataView(buf).getUint16(0, false);
+          if (2 + headerLen <= buf.byteLength) {
+            const header = decoder.decode(buf.slice(2, 2 + headerLen));
+            if (header.includes("Path:audio")) {
+              chunks.push(new Uint8Array(buf.slice(2 + headerLen)));
+            }
+          }
+        }
+      }
+    });
+
+    ws.addEventListener("error", () => {
+      clearTimeout(timer);
+      reject(new Error("TTS 连接中断"));
+    });
+
+    ws.addEventListener("close", () => {
+      clearTimeout(timer);
+      resolve();
+    });
+
+    ws.send(configMsg);
+    ws.send(ssmlMsg);
+  });
+
+  if (chunks.length === 0) {
+    throw new Error("未收到音频数据");
+  }
+
+  const totalLen = chunks.reduce((acc, c) => acc + c.byteLength, 0);
+  const merged = new Uint8Array(totalLen);
+  let offset = 0;
+  for (const c of chunks) {
+    merged.set(c, offset);
+    offset += c.byteLength;
+  }
+  return merged;
 }
 
 export default {
@@ -21,126 +126,66 @@ export default {
     const url = new URL(request.url);
     const cors = {
       "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, PUT, DELETE, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, X-Admin-Password",
-      "Content-Type": "application/json;charset=UTF-8",
-      "Cache-Control": "no-store"
+      "Access-Control-Allow-Methods": "GET, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type"
     };
 
     if (request.method === "OPTIONS") {
       return new Response(null, { headers: cors });
     }
 
-    const owner = env.GITHUB_OWNER;
-    const repo = env.GITHUB_REPO;
-    const branch = env.GITHUB_BRANCH || "main";
-    const ghHeaders = {
-      "User-Agent": "CF-Vocab-Player",
-      "Accept": "application/vnd.github+json",
-      ...(env.GITHUB_TOKEN && { Authorization: `Bearer ${env.GITHUB_TOKEN}` })
-    };
-
-    // 1. 获取 books/ 目录下的所有 JSON 词库列表
-    if (url.pathname === "/api/books" && request.method === "GET") {
-      if (!owner || !repo) {
-        return new Response(JSON.stringify([]), { headers: cors });
+    // 1. 获取微软 Edge TTS 全部可用发音人列表
+    if (url.pathname === "/api/voices") {
+      const token = "6A5AA1D4EAFF4E9FB37E23D68491D6F4";
+      const endpoints = [
+        `https://api.msedgeservices.com/tts/cognitiveservices/voices/list?Ocp-Apim-Subscription-Key=${token}`,
+        `https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/voices/list?TrustedClientToken=${token}`
+      ];
+      for (const ep of endpoints) {
+        try {
+          const res = await fetch(ep, {
+            headers: {
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0"
+            },
+            cf: { cacheTtl: 3600, cacheEverything: true }
+          });
+          if (res.ok) {
+            const list = await res.json();
+            return new Response(JSON.stringify(list), {
+              headers: { ...cors, "Content-Type": "application/json;charset=UTF-8" }
+            });
+          }
+        } catch (_) {}
       }
-      const api = `https://api.github.com/repos/${owner}/${repo}/contents/books?ref=${branch}&t=${Date.now()}`;
-      const res = await fetch(api, { headers: ghHeaders });
-      if (!res.ok) {
-        return new Response(JSON.stringify([]), { headers: cors });
-      }
-      const files = await res.json();
-      const books = Array.isArray(files)
-        ? files
-            .filter(f => f.name.endsWith(".json"))
-            .map(f => ({
-              id: `repo:${f.name}`,
-              name: f.name.replace(/\.json$/i, ""),
-              file: f.name,
-              sha: f.sha
-            }))
-        : [];
-      return new Response(JSON.stringify(books), { headers: cors });
+      return new Response(JSON.stringify([]), {
+        headers: { ...cors, "Content-Type": "application/json;charset=UTF-8" }
+      });
     }
 
-    // 2. 单个词库文件的 读取(GET) / 新建与修改(PUT) / 删除(DELETE)
-    if (url.pathname.startsWith("/api/book/")) {
-      const rawName = decodeURIComponent(url.pathname.replace("/api/book/", ""));
-      const safeFile = rawName.replace(/[^a-zA-Z0-9_\-\u4e00-\u9fa5.]/g, "_");
-      const fileName = safeFile.endsWith(".json") ? safeFile : `${safeFile}.json`;
-      const ghApiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/books/${encodeURIComponent(fileName)}`;
+    // 2. 微软 Edge TTS 音频合成接口
+    if (url.pathname === "/api/tts") {
+      const text = (url.searchParams.get("text") || "").trim();
+      const voice = (url.searchParams.get("voice") || "en-US-JennyNeural").trim();
+      const rate = parseFloat(url.searchParams.get("rate") || "1.0");
 
-      // 读取词库内容（直接走 GitHub API 保证修改后立即生效，无 CDN 延迟）
-      if (request.method === "GET") {
-        const res = await fetch(`${ghApiUrl}?ref=${branch}&t=${Date.now()}`, { headers: ghHeaders });
-        if (!res.ok) {
-          return new Response(JSON.stringify({ error: "未找到该词库文件" }), { status: 404, headers: cors });
-        }
-        const meta = await res.json();
-        const contentStr = base64ToUtf8(meta.content || "");
-        return new Response(contentStr, { headers: cors });
+      if (!text) {
+        return new Response("Missing text", { status: 400, headers: cors });
       }
 
-      // 写操作鉴权校验
-      if (!env.GITHUB_TOKEN) {
-        return new Response(JSON.stringify({ error: "Cloudflare 未配置 GITHUB_TOKEN 环境变量" }), { status: 500, headers: cors });
-      }
-      if (env.ADMIN_PASSWORD) {
-        const clientPwd = request.headers.get("X-Admin-Password") || "";
-        if (clientPwd !== env.ADMIN_PASSWORD) {
-          return new Response(JSON.stringify({ error: "云端管理密码错误，请在设置中核对" }), { status: 401, headers: cors });
-        }
-      }
-
-      // 先查询目标文件是否已存在以获取最新 sha
-      let existingSha = null;
-      const checkRes = await fetch(`${ghApiUrl}?ref=${branch}&t=${Date.now()}`, { headers: ghHeaders });
-      if (checkRes.ok) {
-        const existingData = await checkRes.json();
-        existingSha = existingData.sha;
-      }
-
-      // 新建或覆盖保存词库
-      if (request.method === "PUT") {
-        const bodyText = await request.text();
-        const payload = {
-          message: `${existingSha ? "Update" : "Create"} vocab book: ${fileName}`,
-          content: utf8ToBase64(bodyText),
-          branch,
-          ...(existingSha && { sha: existingSha })
-        };
-        const putRes = await fetch(ghApiUrl, {
-          method: "PUT",
-          headers: { ...ghHeaders, "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
+      try {
+        const audioBytes = await synthesizeEdgeTts(text, voice, rate);
+        return new Response(audioBytes, {
+          headers: {
+            ...cors,
+            "Content-Type": "audio/mpeg",
+            "Cache-Control": "public, max-age=86400"
+          }
         });
-        const putData = await putRes.json();
-        if (!putRes.ok) {
-          return new Response(JSON.stringify({ error: putData.message || "GitHub 保存失败" }), { status: putRes.status, headers: cors });
-        }
-        return new Response(JSON.stringify({ ok: true, file: fileName }), { headers: cors });
-      }
-
-      // 删除词库文件
-      if (request.method === "DELETE") {
-        if (!existingSha) {
-          return new Response(JSON.stringify({ ok: true, alreadyDeleted: true }), { headers: cors });
-        }
-        const delRes = await fetch(ghApiUrl, {
-          method: "DELETE",
-          headers: { ...ghHeaders, "Content-Type": "application/json" },
-          body: JSON.stringify({
-            message: `Delete vocab book: ${fileName}`,
-            sha: existingSha,
-            branch
-          })
+      } catch (err) {
+        return new Response(JSON.stringify({ error: err.message }), {
+          status: 502,
+          headers: { ...cors, "Content-Type": "application/json;charset=UTF-8" }
         });
-        if (!delRes.ok) {
-          const delErr = await delRes.json();
-          return new Response(JSON.stringify({ error: delErr.message || "GitHub 删除失败" }), { status: delRes.status, headers: cors });
-        }
-        return new Response(JSON.stringify({ ok: true }), { headers: cors });
       }
     }
 
