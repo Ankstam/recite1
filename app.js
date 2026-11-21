@@ -1,7 +1,32 @@
 const STORAGE_LOCAL_BOOKS = "wf_local_books_v4";
-const STORAGE_PREFS = "wf_prefs_v4";
+const STORAGE_PREFS = "wf_prefs_v5";
 
+// 全局唯一音频播放器与 MP3 缓存（确保手机端连续循环不卡死、重复词 0 延迟）
+const audioPlayer = new Audio();
+const ttsBlobCache = new Map();
 const activeUtterances = new Set();
+
+// 精选微软 Neural 高拟真发音人预设
+const CURATED_FOREIGN_VOICES = [
+  { id: "edge:en-US-JennyNeural", label: "微软 Jenny (美式女声·亲切默认)" },
+  { id: "edge:en-US-AriaNeural", label: "微软 Aria (美式女声·播报清晰)" },
+  { id: "edge:en-US-GuyNeural", label: "微软 Guy (美式男声·沉稳)" },
+  { id: "edge:en-US-ChristopherNeural", label: "微软 Christopher (美式男声·睡前温和)" },
+  { id: "edge:en-US-AnaNeural", label: "微软 Ana (美式少女音·清脆)" },
+  { id: "edge:en-GB-SoniaNeural", label: "微软 Sonia (英式女声·标准伦敦音)" },
+  { id: "edge:en-GB-RyanNeural", label: "微软 Ryan (英式男声·磁性英音)" },
+  { id: "edge:ja-JP-NanamiNeural", label: "微软 七海 Nanami (日语女声)" },
+  { id: "edge:ja-JP-KeitaNeural", label: "微软 圭太 Keita (日语男声)" }
+];
+
+const CURATED_ZH_VOICES = [
+  { id: "edge:zh-CN-XiaoxiaoNeural", label: "微软 晓晓 (普通话女声·温暖默认)" },
+  { id: "edge:zh-CN-XiaoyiNeural", label: "微软 晓伊 (普通话女声·睡前温柔)" },
+  { id: "edge:zh-CN-YunxiNeural", label: "微软 云希 (普通话男声·阳光青年)" },
+  { id: "edge:zh-CN-YunjianNeural", label: "微软 云健 (普通话男声·沉稳磁性)" },
+  { id: "edge:zh-CN-XiaochenNeural", label: "微软 晓辰 (普通话女声·知性自然)" },
+  { id: "edge:zh-HK-HiuMaanNeural", label: "微软 晓曼 (香港粤语女声)" }
+];
 
 const state = {
   books: [],
@@ -15,13 +40,12 @@ const state = {
   wakeLock: null,
   sleepTimeout: null,
   hudTimeout: null,
-  voices: [],
+  sysVoices: [],
   editingItems: []
 };
 
 const el = id => document.getElementById(id);
 
-// UTF-8 安全 Base64 编解码
 function utf8ToBase64(str) {
   const bytes = new TextEncoder().encode(str);
   let binary = "";
@@ -36,7 +60,6 @@ function base64ToUtf8(b64) {
   return new TextDecoder().decode(bytes);
 }
 
-// 获取当前 GitHub 仓库配置
 function getRepoConfig() {
   return {
     owner: el("ghOwnerInput").value.trim() || "Ankstam",
@@ -59,12 +82,117 @@ function getGhHeaders(requireToken = false) {
 
 // 1. 初始化
 async function init() {
-  initVoices();
+  await initVoices();
   restorePrefs();
   bindEvents();
   await reloadAllBooks();
 }
 
+// 2. 加载第三方微软云端人声 + 浏览器内置 Google/系统人声
+async function initVoices() {
+  const foreignSel = el("foreignVoiceSelect");
+  const zhSel = el("zhVoiceSelect");
+
+  const renderVoiceSelects = (extraCloudVoices = [], systemVoices = []) => {
+    const saved = JSON.parse(localStorage.getItem(STORAGE_PREFS) || "{}");
+    const prevF = foreignSel.value || saved.foreignVoiceURI || "edge:en-US-JennyNeural";
+    const prevZ = zhSel.value || saved.zhVoiceURI || "edge:zh-CN-XiaoxiaoNeural";
+
+    foreignSel.innerHTML = "";
+    zhSel.innerHTML = "";
+
+    // 精选微软云端音源组
+    const fGroupCloud = document.createElement("optgroup");
+    fGroupCloud.label = "微软云端高清人声 (推荐)";
+    CURATED_FOREIGN_VOICES.forEach(v => {
+      const opt = document.createElement("option");
+      opt.value = v.id;
+      opt.textContent = v.label;
+      fGroupCloud.appendChild(opt);
+    });
+
+    const curatedIds = new Set([...CURATED_FOREIGN_VOICES, ...CURATED_ZH_VOICES].map(v => v.id));
+    extraCloudVoices.forEach(v => {
+      const id = `edge:${v.ShortName}`;
+      if (curatedIds.has(id)) return;
+      const opt = document.createElement("option");
+      opt.value = id;
+      opt.textContent = `微软 ${v.ShortName}`;
+      if ((v.Locale || "").toLowerCase().startsWith("zh")) {
+        // 归入中文
+      } else if (/^(en|ja|ko|fr|de|es|ru)-/i.test(v.Locale || "")) {
+        fGroupCloud.appendChild(opt);
+      }
+    });
+    foreignSel.appendChild(fGroupCloud);
+
+    const zGroupCloud = document.createElement("optgroup");
+    zGroupCloud.label = "微软云端中文人声 (推荐)";
+    CURATED_ZH_VOICES.forEach(v => {
+      const opt = document.createElement("option");
+      opt.value = v.id;
+      opt.textContent = v.label;
+      zGroupCloud.appendChild(opt);
+    });
+    extraCloudVoices.forEach(v => {
+      const id = `edge:${v.ShortName}`;
+      if (!curatedIds.has(id) && (v.Locale || "").toLowerCase().startsWith("zh")) {
+        const opt = document.createElement("option");
+        opt.value = id;
+        opt.textContent = `微软 ${v.ShortName}`;
+        zGroupCloud.appendChild(opt);
+      }
+    });
+    zhSel.appendChild(zGroupCloud);
+
+    // 浏览器内置 Google / 本地引擎（离线备用）
+    if (systemVoices.length > 0) {
+      const fGroupSys = document.createElement("optgroup");
+      fGroupSys.label = "浏览器内置 / Google 本地引擎";
+      const zGroupSys = document.createElement("optgroup");
+      zGroupSys.label = "浏览器内置 / Google 中文引擎";
+
+      systemVoices.forEach(v => {
+        const opt = document.createElement("option");
+        opt.value = `sys:${v.voiceURI}`;
+        opt.textContent = `${v.name} (${v.lang})`;
+        if ((v.lang || "").toLowerCase().startsWith("zh")) {
+          zGroupSys.appendChild(opt);
+        } else {
+          fGroupSys.appendChild(opt);
+        }
+      });
+
+      if (fGroupSys.children.length > 0) foreignSel.appendChild(fGroupSys);
+      if (zGroupSys.children.length > 0) zhSel.appendChild(zGroupSys);
+    }
+
+    foreignSel.value = prevF;
+    if (!foreignSel.value) foreignSel.value = "edge:en-US-JennyNeural";
+    zhSel.value = prevZ;
+    if (!zhSel.value) zhSel.value = "edge:zh-CN-XiaoxiaoNeural";
+  };
+
+  renderVoiceSelects([], []);
+
+  // 异步拉取云端完整语音列表与系统列表
+  let cloudList = [];
+  try {
+    const res = await fetch("/api/voices");
+    if (res.ok) cloudList = await res.json();
+  } catch (_) {}
+
+  if ("speechSynthesis" in window) {
+    state.sysVoices = window.speechSynthesis.getVoices() || [];
+    window.speechSynthesis.onvoiceschanged = () => {
+      state.sysVoices = window.speechSynthesis.getVoices() || [];
+      renderVoiceSelects(cloudList, state.sysVoices);
+    };
+  }
+  renderVoiceSelects(cloudList, state.sysVoices);
+}
+
+// 3. GitHub 直连词库管理
 async function reloadAllBooks(preferBookId = "") {
   const localBooks = getLocalBooks();
   let repoBooks = [];
@@ -108,53 +236,8 @@ async function reloadAllBooks(preferBookId = "") {
   await selectBook(targetId);
 }
 
-// 2. 多人声加载
-function initVoices() {
-  if (!("speechSynthesis" in window)) return;
-
-  const load = () => {
-    const list = window.speechSynthesis.getVoices();
-    if (!list || list.length === 0) return;
-    state.voices = list;
-
-    const saved = JSON.parse(localStorage.getItem(STORAGE_PREFS) || "{}");
-    const foreignSel = el("foreignVoiceSelect");
-    const zhSel = el("zhVoiceSelect");
-
-    foreignSel.innerHTML = `<option value="">外文：自动人声</option>`;
-    zhSel.innerHTML = `<option value="">中文：自动人声</option>`;
-
-    list.forEach(v => {
-      const langLow = (v.lang || "").toLowerCase();
-      const label = `${v.name.replace(/Microsoft |Google |Apple /g, "")} (${v.lang})`;
-      const opt = document.createElement("option");
-      opt.value = v.voiceURI;
-      opt.textContent = label;
-
-      if (langLow.startsWith("zh") || langLow.includes("cmn")) {
-        zhSel.appendChild(opt);
-      } else {
-        foreignSel.appendChild(opt);
-      }
-    });
-
-    if (saved.foreignVoiceURI) foreignSel.value = saved.foreignVoiceURI;
-    if (saved.zhVoiceURI) zhSel.value = saved.zhVoiceURI;
-  };
-
-  load();
-  window.speechSynthesis.onvoiceschanged = load;
-  setTimeout(load, 400);
-  setTimeout(load, 1200);
-}
-
-// 3. GitHub 直连保存与删除
 function getLocalBooks() {
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_LOCAL_BOOKS) || "[]");
-  } catch {
-    return [];
-  }
+  try { return JSON.parse(localStorage.getItem(STORAGE_LOCAL_BOOKS) || "[]"); } catch { return []; }
 }
 
 function saveLocalBooks(books) {
@@ -172,7 +255,6 @@ async function saveBookToGitHub(bookName, items, existingFileName = "") {
   const fileName = existingFileName || sanitizeFileName(bookName);
   const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/books/${encodeURIComponent(fileName)}`;
 
-  // 查询最新 sha（若文件已存在则更新，不存在则新建）
   let existingSha = null;
   const checkRes = await fetch(`${apiUrl}?ref=${branch}`, { cache: "no-store", headers });
   if (checkRes.ok) {
@@ -184,7 +266,7 @@ async function saveBookToGitHub(bookName, items, existingFileName = "") {
     bookName: bookName.replace(/\.json$/i, ""),
     updatedAt: new Date().toISOString(),
     items: items.map(item => ({
-      category: item.category || "未分类",
+      category: item.category || "默认分类",
       word: item.word,
       phonetic: item.phonetic || "",
       meaning: item.meaning || "",
@@ -204,9 +286,7 @@ async function saveBookToGitHub(bookName, items, existingFileName = "") {
   });
 
   const data = await putRes.json();
-  if (!putRes.ok) {
-    throw new Error(`GitHub 保存失败：${data.message || putRes.status}`);
-  }
+  if (!putRes.ok) throw new Error(`GitHub 保存失败：${data.message || putRes.status}`);
   return `repo:${fileName}`;
 }
 
@@ -222,11 +302,7 @@ async function deleteBookFromGitHub(fileName) {
   const delRes = await fetch(apiUrl, {
     method: "DELETE",
     headers: { ...headers, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      message: `Delete vocab book: ${fileName}`,
-      sha: meta.sha,
-      branch
-    })
+    body: JSON.stringify({ message: `Delete vocab book: ${fileName}`, sha: meta.sha, branch })
   });
 
   if (!delRes.ok) {
@@ -265,7 +341,6 @@ function renderBookManageList() {
   state.books.forEach(b => {
     const label = document.createElement("label");
     label.className = "book-check-item";
-
     const chk = document.createElement("input");
     chk.type = "checkbox";
     chk.value = b.id;
@@ -315,19 +390,13 @@ async function selectBook(bookId) {
 function splitBilingualLine(raw) {
   const text = String(raw || "").trim();
   if (!text) return { foreign: "", zh: "" };
-
   if (text.includes("|")) {
     const [f, ...rest] = text.split("|");
     return { foreign: f.trim(), zh: rest.join("|").trim() };
   }
-
   const match = text.match(/^(.+?)\s+([\u4e00-\u9fa5\u3000-\u303f\uff00-\uffef，。！？；：、（）\s]+)$/);
   if (match) return { foreign: match[1].trim(), zh: match[2].trim() };
-
-  if (/^[\u4e00-\u9fa5\s，。！？；：、（）]+$/.test(text)) {
-    return { foreign: "", zh: text };
-  }
-
+  if (/^[\u4e00-\u9fa5\s，。！？；：、（）]+$/.test(text)) return { foreign: "", zh: text };
   return { foreign: text, zh: "" };
 }
 
@@ -336,7 +405,7 @@ function normalizeItems(rawList) {
     const rawPhrases = Array.isArray(item.phrases)
       ? item.phrases
       : typeof item.phrases === "string" && item.phrases
-      ? item.phrases.split(";").map(s => s.trim()).filter(Boolean)
+      ? item.phrases.split(/[;；]/).map(s => s.trim()).filter(Boolean)
       : [];
 
     const parsedPhrases = rawPhrases.map(p => {
@@ -346,16 +415,8 @@ function normalizeItems(rawList) {
       return splitBilingualLine(p);
     });
 
-    if (item.example) {
-      const ex = splitBilingualLine(item.example);
-      parsedPhrases.push({
-        foreign: ex.foreign,
-        zh: (item.exampleMeaning || ex.zh || "").trim()
-      });
-    }
-
     return {
-      category: (item.category || "未分类").trim(),
+      category: (item.category || "默认分类").trim(),
       word: (item.word || "").trim(),
       phonetic: (item.phonetic || "").trim(),
       meaning: (item.meaning || "").trim(),
@@ -364,6 +425,8 @@ function normalizeItems(rawList) {
   }).filter(i => i.word);
 }
 
+// 4. 极简导入解析器：支持制表符(\t) 或 竖线(|)
+// 列顺序：单词 | 单词意思 | 音标 | 句子 | 句子意思 | 分类（空则无）
 function parseImportedContent(rawText) {
   const trimmed = rawText.trim();
   if (!trimmed) return [];
@@ -373,25 +436,39 @@ function parseImportedContent(rawText) {
     return normalizeItems(Array.isArray(parsed) ? parsed : parsed.items || []);
   }
 
-  return normalizeItems(
-    trimmed
-      .split(/\r?\n/)
-      .map(line => line.trim())
-      .filter(Boolean)
-      .map(line => {
-        const parts = line.split("|").map(s => s.trim());
-        return {
-          word: parts[0] || "",
-          phonetic: parts[1] || "",
-          meaning: parts[2] || "",
-          phrases: parts[3] ? parts[3].split(";").map(p => p.trim()).filter(Boolean) : [],
-          category: parts[4] || "自定义导入"
-        };
-      })
-  );
+  return trimmed
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(Boolean)
+    .map(line => {
+      const delimiter = line.includes("\t") ? "\t" : "|";
+      const parts = line.split(delimiter).map(s => s.trim());
+
+      const word = parts[0] || "";
+      const meaning = parts[1] || "";
+      const phonetic = parts[2] || "";
+      const sentenceCol = parts[3] || "";
+      const sentenceZhCol = parts[4] || "";
+      const category = parts[5] || "默认分类";
+
+      const phrases = [];
+      if (sentenceCol || sentenceZhCol) {
+        const fList = sentenceCol ? sentenceCol.split(/[;；]/).map(s => s.trim()) : [];
+        const zList = sentenceZhCol ? sentenceZhCol.split(/[;；]/).map(s => s.trim()) : [];
+        const maxLen = Math.max(fList.length, zList.length);
+        for (let i = 0; i < maxLen; i++) {
+          if (fList[i] || zList[i]) {
+            phrases.push({ foreign: fList[i] || "", zh: zList[i] || "" });
+          }
+        }
+      }
+
+      return { category, word, phonetic, meaning, phrases };
+    })
+    .filter(i => i.word);
 }
 
-// 4. 分类过滤与卡片渲染
+// 5. 分类过滤与卡片渲染
 function buildCategoryFilter() {
   const cats = [...new Set(state.allItems.map(i => i.category))];
   const sel = el("categorySelect");
@@ -459,7 +536,7 @@ function revealMeaningNow() {
   el("vocabCard").classList.remove("hide-meaning");
 }
 
-// 5. 词库编辑器
+// 6. 词库编辑器
 function openBookEditor() {
   const book = state.books.find(b => b.id === state.currentBookId);
   if (!book) return alert("请先选择一本词库");
@@ -491,7 +568,7 @@ function renderEditorItems() {
 
     const phonIn = document.createElement("input");
     phonIn.type = "text";
-    phonIn.placeholder = "音标";
+    phonIn.placeholder = "音标（空则无）";
     phonIn.value = item.phonetic;
     phonIn.addEventListener("input", e => { state.editingItems[idx].phonetic = e.target.value; });
 
@@ -514,13 +591,13 @@ function renderEditorItems() {
 
     const meanIn = document.createElement("input");
     meanIn.type = "text";
-    meanIn.placeholder = "中文意思";
+    meanIn.placeholder = "单词意思";
     meanIn.value = item.meaning;
     meanIn.addEventListener("input", e => { state.editingItems[idx].meaning = e.target.value; });
 
     const phraseIn = document.createElement("textarea");
     phraseIn.rows = 2;
-    phraseIn.placeholder = "词组或例句（每行一条，格式：英文 | 中文意思）";
+    phraseIn.placeholder = "句子或词组（每行一条：句子 | 句子意思）";
     phraseIn.value = item.phrases.map(p => (p.zh ? `${p.foreign} | ${p.zh}` : p.foreign)).join("\n");
     phraseIn.addEventListener("input", e => {
       state.editingItems[idx].phrases = e.target.value
@@ -535,62 +612,110 @@ function renderEditorItems() {
   });
 }
 
-// 6. TTS 朗读核心
+// 7. 第三方微软云端 TTS 核心（带缓存与系统离线自动回退）
 function stopSpeechEngine() {
-  if (!("speechSynthesis" in window)) return;
+  try {
+    audioPlayer.pause();
+    audioPlayer.currentTime = 0;
+  } catch (_) {}
   activeUtterances.clear();
-  try { window.speechSynthesis.cancel(); } catch (_) {}
+  if ("speechSynthesis" in window) {
+    try { window.speechSynthesis.cancel(); } catch (_) {}
+  }
 }
 
-function speakText(text, isChinese = false) {
+function speakViaSystemTts(text, isChinese, rate) {
   return new Promise(resolve => {
     if (!("speechSynthesis" in window)) return resolve();
-    const cleanText = String(text || "").trim();
-    if (!cleanText) return resolve();
-
     let settled = false;
-    const rate = parseFloat(el("speechRate").value) || 0.85;
-    const utter = new SpeechSynthesisUtterance(cleanText);
+    const utter = new SpeechSynthesisUtterance(text);
     utter.rate = rate;
+    utter.lang = isChinese ? "zh-CN" : (/[\u3040-\u30ff]/.test(text) ? "ja-JP" : "en-US");
 
-    if (isChinese) {
-      utter.lang = "zh-CN";
-      const zhUri = el("zhVoiceSelect").value;
-      if (zhUri) {
-        const v = state.voices.find(item => item.voiceURI === zhUri);
-        if (v) utter.voice = v;
-      }
-    } else {
-      const isJapanese = /[\u3040-\u30ff]/.test(cleanText);
-      utter.lang = isJapanese ? "ja-JP" : "en-US";
-      const fUri = el("foreignVoiceSelect").value;
-      if (fUri) {
-        const v = state.voices.find(item => item.voiceURI === fUri);
-        if (v) utter.voice = v;
-      }
+    const selectedVal = isChinese ? el("zhVoiceSelect").value : el("foreignVoiceSelect").value;
+    if (selectedVal.startsWith("sys:")) {
+      const uri = selectedVal.slice(4);
+      const v = state.sysVoices.find(item => item.voiceURI === uri);
+      if (v) utter.voice = v;
     }
 
-    const maxDurationMs = Math.max(2800, Math.ceil((cleanText.length * 420) / rate) + 2200);
-    const watchdog = setTimeout(() => finish(), maxDurationMs);
-    const resumeTimer = setInterval(() => {
-      try { if (window.speechSynthesis.paused) window.speechSynthesis.resume(); } catch (_) {}
-    }, 350);
-
+    const watchdog = setTimeout(() => finish(), Math.max(3000, text.length * 450 + 2000));
     function finish() {
       if (settled) return;
       settled = true;
       clearTimeout(watchdog);
-      clearInterval(resumeTimer);
       activeUtterances.delete(utter);
       resolve();
     }
-
     utter.onend = finish;
     utter.onerror = finish;
-
     activeUtterances.add(utter);
     try { window.speechSynthesis.speak(utter); } catch (_) { finish(); }
   });
+}
+
+async function speakText(text, isChinese = false) {
+  const cleanText = String(text || "").trim();
+  if (!cleanText) return;
+
+  const rate = parseFloat(el("speechRate").value) || 0.9;
+  const selectedVal = isChinese ? el("zhVoiceSelect").value : el("foreignVoiceSelect").value;
+
+  // 若用户主动选择了本地系统引擎，直接走系统发音
+  if (selectedVal.startsWith("sys:")) {
+    return speakViaSystemTts(cleanText, isChinese, rate);
+  }
+
+  // 解析微软云端发音人（检测到日语假名且当前为英语人声时自动切换日语七海人声）
+  let voiceName = selectedVal.startsWith("edge:")
+    ? selectedVal.slice(5)
+    : (isChinese ? "zh-CN-XiaoxiaoNeural" : "en-US-JennyNeural");
+
+  if (!isChinese && /[\u3040-\u30ff]/.test(cleanText) && !voiceName.startsWith("ja-JP")) {
+    voiceName = "ja-JP-NanamiNeural";
+  }
+
+  const cacheKey = `${voiceName}|${rate.toFixed(1)}|${cleanText}`;
+
+  try {
+    let blobUrl = ttsBlobCache.get(cacheKey);
+    if (!blobUrl) {
+      const apiUrl = `/api/tts?voice=${encodeURIComponent(voiceName)}&rate=${rate.toFixed(1)}&text=${encodeURIComponent(cleanText)}`;
+      const res = await fetch(apiUrl);
+      if (!res.ok) throw new Error("Edge TTS 接口返回异常");
+      const blob = await res.blob();
+      blobUrl = URL.createObjectURL(blob);
+      ttsBlobCache.set(cacheKey, blobUrl);
+    }
+
+    await new Promise((resolve, reject) => {
+      let settled = false;
+      const timer = setTimeout(() => finish(), 15000);
+
+      function finish() {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        audioPlayer.onended = null;
+        audioPlayer.onerror = null;
+        resolve();
+      }
+
+      audioPlayer.onended = finish;
+      audioPlayer.onerror = () => {
+        clearTimeout(timer);
+        reject(new Error("音频播放失败"));
+      };
+      audioPlayer.src = blobUrl;
+      audioPlayer.play().catch(err => {
+        clearTimeout(timer);
+        reject(err);
+      });
+    });
+  } catch (_) {
+    // 断网或云端波动时自动降级到本地发音，保证背诵不中断
+    await speakViaSystemTts(cleanText, isChinese, rate);
+  }
 }
 
 async function speakForeignSequence(item, token) {
@@ -628,8 +753,10 @@ const waitMs = ms => new Promise(r => setTimeout(r, Math.max(0, ms)));
 async function startAutoPlay() {
   if (state.filteredItems.length === 0) return;
 
+  // 解锁移动端音频播放器上下文
+  try { audioPlayer.load(); } catch (_) {}
   stopSpeechEngine();
-  await waitMs(60);
+  await waitMs(40);
 
   state.isPlaying = true;
   el("playPauseBtn").textContent = "暂停播放";
@@ -665,9 +792,10 @@ function stopAutoPlay() {
 
 async function triggerSingleSpeak() {
   if (state.filteredItems.length === 0) return;
+  try { audioPlayer.load(); } catch (_) {}
   if (state.isPlaying) stopAutoPlay();
   stopSpeechEngine();
-  await waitMs(60);
+  await waitMs(40);
 
   const token = ++state.playToken;
   const item = state.filteredItems[state.index];
@@ -676,7 +804,7 @@ async function triggerSingleSpeak() {
   if (token === state.playToken) await speakChineseSequence(item, token);
 }
 
-// 7. 屏幕常亮、定时、纯净全屏与横竖屏
+// 8. 屏幕常亮、定时、纯净全屏与横竖屏
 async function requestWakeLock() {
   try {
     if ("wakeLock" in navigator && !state.wakeLock) {
@@ -724,7 +852,7 @@ async function toggleOrientation() {
   el("app").classList.toggle("css-landscape", state.isCssLandscape);
 }
 
-// 8. 设置持久化与事件绑定
+// 9. 设置持久化与事件绑定
 function savePrefs() {
   localStorage.setItem(STORAGE_PREFS, JSON.stringify({
     theme: document.body.dataset.theme,
@@ -756,7 +884,7 @@ function restorePrefs() {
   } catch (_) {}
   el("thinkTimeVal").textContent = `${parseFloat(el("thinkTime").value).toFixed(1)}s`;
   el("stayTimeVal").textContent = `${parseFloat(el("stayTime").value).toFixed(1)}s`;
-  el("speechRateVal").textContent = `${parseFloat(el("speechRate").value).toFixed(2)}x`;
+  el("speechRateVal").textContent = `${parseFloat(el("speechRate").value).toFixed(1)}x`;
 }
 
 function applyTheme(themeVal, persist = true) {
@@ -783,6 +911,24 @@ function bindEvents() {
   });
   [el("settingsDialog"), el("booksDialog"), el("editorDialog"), el("importDialog")].forEach(dlg => {
     dlg.addEventListener("click", e => { if (e.target === dlg) dlg.close(); });
+  });
+
+  // 样本一键复制与填入
+  el("copySampleBtn").addEventListener("click", async () => {
+    const sampleText = el("sampleTemplateBox").textContent.trim();
+    try {
+      await navigator.clipboard.writeText(sampleText);
+      el("copySampleBtn").textContent = "已复制样本 ✓";
+      setTimeout(() => { el("copySampleBtn").textContent = "复制格式样本"; }, 2000);
+    } catch (_) {
+      el("importTextArea").value = sampleText;
+      alert("当前环境不支持直接写入剪贴板，已直接为你填入下方输入框");
+    }
+  });
+
+  el("fillSampleBtn").addEventListener("click", () => {
+    el("importTextArea").value = el("sampleTemplateBox").textContent.trim();
+    if (!el("importBookName").value) el("importBookName").value = "样本测试词库";
   });
 
   el("bookSelect").addEventListener("change", e => selectBook(e.target.value));
@@ -834,7 +980,7 @@ function bindEvents() {
   });
 
   el("addWordItemBtn").addEventListener("click", () => {
-    const defaultCat = state.editingItems[0]?.category || "未分类";
+    const defaultCat = state.editingItems[0]?.category || "默认分类";
     state.editingItems.unshift({ category: defaultCat, word: "", phonetic: "", meaning: "", phrases: [] });
     renderEditorItems();
   });
@@ -949,7 +1095,7 @@ function bindEvents() {
     savePrefs();
   });
   el("speechRate").addEventListener("input", e => {
-    el("speechRateVal").textContent = `${parseFloat(e.target.value).toFixed(2)}x`;
+    el("speechRateVal").textContent = `${parseFloat(e.target.value).toFixed(1)}x`;
     savePrefs();
   });
 
