@@ -1,0 +1,139 @@
+{
+  "bookName": "测试",
+  "updatedAt": "2026-11-21T08:58:52.292Z",
+  "items": [
+    {
+      "category": "睡前助眠",
+      "word": "tranquil",
+      "phonetic": "/ˈtræŋ.kwɪl/",
+      "meaning": "adj. 平静的；安详的",
+      "phrases": [
+        "A tranquil night helps you sleep deeply. | 宁静的夜晚有助于深度睡眠。"
+      ]
+    },
+    {
+      "category": "睡前助眠",
+      "word": "serendipity",
+      "phonetic": "/ˌser.ənˈdɪp.ə.t̬i/",
+      "meaning": "n. 机缘巧合；意外发现美好事物的运气",
+      "phrases": [
+        "Meeting an old friend here was pure serendipity. | 在这里偶遇老友纯属机缘巧合。"
+      ]
+    },
+    {
+      "category": "睡前助眠",
+      "word": "unwind",
+      "phonetic": "/ʌnˈwaɪnd/",
+      "meaning": "v. 放松；舒展",
+      "phrases": [
+        "Listening to soft audio helps my mind unwind. | 听轻柔的音频有助于我的思绪放松。"
+      ]
+    },
+    {
+      "category": "醒来唤醒",
+      "word": "momentum",
+      "phonetic": "/məˈmen.təm/",
+      "meaning": "n. 动力；势头；动量",
+      "phrases": [
+        "Build your morning momentum early. | 尽早积累你清晨的动力。"
+      ]
+    },
+    {
+      "category": "醒来唤醒",
+      "word": "resilient",
+      "phonetic": "/rɪˈzɪl.jənt/",
+      "meaning": "adj. 有韧性的；能迅速恢复的",
+      "phrases": [
+        "Stay resilient when facing tough challenges. | 面对艰难挑战时保持韧性。"
+      ]
+    },
+    {
+      "category": "日常高频",
+      "word": "inevitable",
+      "phonetic": "/ɪnˈev.ɪ.tə.bəl/",
+      "meaning": "adj. 不可避免的；必然的",
+      "phrases": [
+        "Progress is inevitable with consistent effort. | 只要持续努力，进步是必然的。"
+      ]
+    },
+    {
+      "category": "日常高频",
+      "word": "immerse",
+      "phonetic": "",
+      "meaning": "v. 使沉浸；专心于",
+      "phrases": [
+        "Immerse yourself in the language every day. | 每天让自己沉浸在这门语言中。"
+      ]
+    },
+    {
+      "category": "日常高频",
+      "word": "perseverance",
+      "phonetic": "/ˌpɜː.səˈvɪə.rəns/",
+      "meaning": "n. 毅力；不屈不挠",
+      "phrases": []
+    },
+    {
+      "category": "日语睡前",
+      "word": "おやすみなさい",
+      "phonetic": "おやすみなさい",
+      "meaning": "晚安（礼貌用语）",
+      "phrases": [
+        "ゆっくりおやすみなさい。 | 好好休息，晚安。"
+      ]
+    },
+    {
+      "category": "日语醒来",
+      "word": "おはようございます",
+      "phonetic": "おはようございます",
+      "meaning": "早上好（礼貌用语）",
+      "phrases": [
+        "今日も一日がんばりましょう。 | 今天一天也加油吧。"
+      ]
+    },
+    {
+      "category": "日语高频",
+      "word": "懐かしい",
+      "phonetic": "なつかしい",
+      "meaning": "adj. 怀念的；令人留恋的",
+      "phrases": [
+        "懐かしい曲を聴いてリラックスする。 | 听着怀念的曲子放松身心。"
+      ]
+    },
+    {
+      "category": "日语高频",
+      "word": "諦める",
+      "phonetic": "あきらめる",
+      "meaning": "v. 放弃；死心",
+      "phrases": [
+        "最後まで絶対に諦めない。 | 到最后也绝不放弃。"
+      ]
+    },
+    {
+      "category": "日语高频",
+      "word": "頑張る",
+      "phonetic": "がんばる",
+      "meaning": "v. 加油；努力坚持",
+      "phrases": [
+        "目標に向かって毎日頑張る。 | 朝着目标每天努力坚持。"
+      ]
+    },
+    {
+      "category": "日语睡前",
+      "word": "静かだ",
+      "phonetic": "しずかだ",
+      "meaning": "adj. 安静的；静谧的",
+      "phrases": [
+        "夜の図書館はとても静かだ。 | 夜晚的图书馆非常安静。"
+      ]
+    },
+    {
+      "category": "日语日常",
+      "word": "スケジュール",
+      "phonetic": "カタカナ",
+      "meaning": "n. 日程表；计划安排",
+      "phrases": [
+        "明日のスケジュールを確認する。 | 确认明天的日程安排。"
+      ]
+    }
+  ]
+}
