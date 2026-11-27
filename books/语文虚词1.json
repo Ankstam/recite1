@@ -1,0 +1,76 @@
+{
+  "bookName": "语文虚词1",
+  "updatedAt": "2026-11-27T14:42:40.319Z",
+  "items": [
+    {
+      "category": "默认分类",
+      "word": "师道【之】不传也久矣",
+      "phonetic": "",
+      "meaning": "之：助词，取消句子独立性，不译",
+      "phrases": []
+    },
+    {
+      "category": "默认分类",
+      "word": "何陋【之】有",
+      "phonetic": "",
+      "meaning": "之：助词，宾语前置标志，不译",
+      "phrases": []
+    },
+    {
+      "category": "默认分类",
+      "word": "择其善者而从【之】",
+      "phonetic": "",
+      "meaning": "之：代词，它",
+      "phrases": []
+    },
+    {
+      "category": "默认分类",
+      "word": "古【之】学者必有师",
+      "phonetic": "",
+      "meaning": "之：结构助词，的",
+      "phrases": []
+    },
+    {
+      "category": "默认分类",
+      "word": "青，取之于蓝，【而】青于蓝",
+      "phonetic": "",
+      "meaning": "而：连词，表转折，却",
+      "phrases": []
+    },
+    {
+      "category": "默认分类",
+      "word": "人非生【而】知之者",
+      "phonetic": "",
+      "meaning": "而：连词，表承接，就",
+      "phrases": []
+    },
+    {
+      "category": "默认分类",
+      "word": "吾尝跂【而】望矣",
+      "phonetic": "",
+      "meaning": "而：连词，表修饰，不译",
+      "phrases": []
+    },
+    {
+      "category": "默认分类",
+      "word": "君子博学【而】日参省乎己",
+      "phonetic": "",
+      "meaning": "而：连词，表递进，并且",
+      "phrases": []
+    },
+    {
+      "category": "默认分类",
+      "word": "【其】闻道也固先乎吾",
+      "phonetic": "",
+      "meaning": "其：代词，他",
+      "phrases": []
+    },
+    {
+      "category": "默认分类",
+      "word": "【其】皆出于此乎",
+      "phonetic": "",
+      "meaning": "其：语气副词，大概",
+      "phrases": []
+    }
+  ]
+}
